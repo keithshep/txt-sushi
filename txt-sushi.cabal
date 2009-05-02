@@ -1,0 +1,38 @@
+Name:                txt-sushi
+Version:             0.0
+Description:         A toolkit for slicing and dicing flat-files including an SQL interface
+License:             GPL
+Author:              Keith Sheppard
+Maintainer:          keithshep@gmail.com
+Build-Type:          Simple
+Cabal-Version:       >=1.2
+
+Executable tssql
+  Main-Is:          tssql.hs
+  Build-Depends:    base,haskell98,directory,containers,parsec
+  
+  -- creates highly optimized code but it's slow to compile
+  --GHC-Options:      -O2 -fvia-C
+  
+  -- combine the following with the +RTS -xc -RTS runtime option for stack taces
+  --GHC-Options:      -prof -auto-all
+
+Executable csvtopretty
+  Main-Is:          csvtopretty.hs
+  Build-Depends:    base,haskell98,directory,containers
+
+Executable csvtotab
+  Main-Is:          csvtotab.hs
+  Build-Depends:    base,haskell98,directory,containers
+
+Executable tabtocsv
+  Main-Is:          tabtocsv.hs
+  Build-Depends:    base,haskell98,directory,containers
+
+Executable tabtopretty
+  Main-Is:          tabtopretty.hs
+  Build-Depends:    base,haskell98,directory,containers
+
+Executable joincol
+  Main-Is:          joincol.hs
+  Build-Depends:    base,haskell98,directory,containers
