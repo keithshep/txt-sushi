@@ -1,7 +1,7 @@
 {- |
 Simple table transformations
 -}
-module Table.Transform (
+module TxtSushi.Transform (
     selectColumns,
     sortColumns,
     fileBasedSortTable,
@@ -14,7 +14,7 @@ import Data.List
 import System.Directory
 import System.IO
 
-import Table.IO
+import TxtSushi.IO
 
 {- |
 Create a new table by selecting the given 'columnIndices'

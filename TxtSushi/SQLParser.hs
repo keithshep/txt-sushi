@@ -240,7 +240,7 @@ parseTableAlias = upperOrLower "AS" >> spaces1 >> parseIdentifier
 -- Expression parsing: These can be after "SELECT", "WHERE" or "HAVING"
 --------------------------------------------------------------------------------
 
-parseExpression = parseAnyNormalFunction
+parseExpression = parseAnyNormalFunction {-<|> parseAnyInfixFunction-}
 
 parseAnyNormalFunction =
     let allParsers = map (try . parseNormalFunction) normalSyntaxFunctions
@@ -270,8 +270,9 @@ trimFunction = SQLFunction {
     minArgCount     = 1,
     argCountIsFixed = True}
 
+-- TODO we need to care about operator precidence
 --parseInfixFunction =
---    let allInfixOps = map (try . string) (map functionName
+--    let allInfixOps = map (try . string) (map functionName (concat infixFunctions))
 
 -- Infix functions --
 infixFunctions =

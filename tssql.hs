@@ -1,14 +1,26 @@
+-----------------------------------------------------------------------------
+-- |
+-- Copyright   :  (c) Keith Sheppard 2009
+-- License     :  GPL3 or greater
+-- Maintainer  :  keithshep@gmail.com
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- Main entry point for the TxtSushi SQL command line
+--
+-----------------------------------------------------------------------------
 import Data.List
 import qualified Data.Map as Map
 import System.Environment
 import System.Exit
 import System.IO
 
-import Table.IO
-import Table.Transform
 import Text.ParserCombinators.Parsec
+
+import TxtSushi.IO
 import TxtSushi.SQLExecution
 import TxtSushi.SQLParser
+import TxtSushi.Transform
 import Util.CommandLineArgument
 import Util.IOUtil
 

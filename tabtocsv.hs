@@ -3,7 +3,7 @@ import System.Environment
 import System.Exit
 import System.IO
 
-import Table.IO
+import TxtSushi.IO
 import Util.IOUtil
 
 main = do

@@ -2,7 +2,7 @@
 The 'FlatFile' module is for reading misc. 'FlatFile' formats like CSV or
 tab delimited
 -}
-module Table.IO (
+module TxtSushi.IO (
     formatTableWithWidths,
     maxTableColumnWidths,
     formatTable,

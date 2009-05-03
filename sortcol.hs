@@ -4,8 +4,8 @@ import System.Environment
 import System.Exit
 import System.IO
 
-import Table.IO
-import Table.Transform
+import TxtSushi.IO
+import TxtSushi.Transform
 import Util.IOUtil
 
 closeAll [] = do return ()

@@ -1,3 +1,16 @@
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  TxtSushi.SQLExecution
+-- Copyright   :  (c) Keith Sheppard 2009
+-- License     :  GPL3 or greater
+-- Maintainer  :  keithshep@gmail.com
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- Module for executing a SQL statement
+--
+-----------------------------------------------------------------------------
+
 module TxtSushi.SQLExecution (
     select,
     databaseTableToTextTable,
@@ -6,8 +19,8 @@ module TxtSushi.SQLExecution (
 import Data.List
 import qualified Data.Map as Map
 
-import Table.Transform
 import TxtSushi.SQLParser
+import TxtSushi.Transform
 
 -- | an SQL table data structure
 data DatabaseTable = DatabaseTable {
