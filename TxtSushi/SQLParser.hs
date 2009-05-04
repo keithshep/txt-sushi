@@ -19,7 +19,29 @@ module TxtSushi.SQLParser (
     ColumnIdentifier(..),
     ColumnSelection(..),
     Expression,
-    SQLFunction) where
+    SQLFunction,
+    
+    -- SQL functions with "normal" syntax
+    upperFunction,
+    lowerFunction,
+    trimFunction,
+    
+    -- Algebraic infix SQL functions
+    multiplyFunction,
+    divideFunction,
+    argCountIsFixed,
+    plusFunction,
+    minusFunction,
+    
+    -- Boolean infix SQL functions
+    isFunction,
+    isNotFunction,
+    lessThanFunction,
+    lessThanOrEqualToFunction,
+    greaterThanFunction,
+    greaterThanOrEqualToFunction,
+    andFunction,
+    orFunction) where
 
 import Data.Char
 import Data.List
@@ -104,7 +126,7 @@ parseSelectBody = do
     -- TODO need a better error message for missing "ON" etc. in
     -- the from part, can do this by grabing "FROM" first
     maybeFrom <- maybeParseFromPart
-    maybeWhere <- maybeParseWherePart
+    maybeWhere <- maybeParseWherePart -- TODO what about spaces btwn from and where??
     spaces
     eof
     
@@ -240,15 +262,19 @@ parseTableAlias = upperOrLower "AS" >> spaces1 >> parseIdentifier
 -- Expression parsing: These can be after "SELECT", "WHERE" or "HAVING"
 --------------------------------------------------------------------------------
 
-parseExpression = parseAnyNormalFunction {-<|> parseAnyInfixFunction-}
+parseExpression =
+    parseAnyNormalFunction <|>
+    --parseAnyInfixFunction <|>
+    (parseColumnId >>= (\colId -> return $ ColumnExpression colId))
 
 parseAnyNormalFunction =
-    let allParsers = map (try . parseNormalFunction) normalSyntaxFunctions
+    let allParsers = map parseNormalFunction normalSyntaxFunctions
     in choice allParsers
 
 parseNormalFunction sqlFunc = do
-    upperOrLower $ functionName sqlFunc
-    args <- argSepBy (minArgCount sqlFunc) parseExpression parseCommaSeparator
+    try $ (upperOrLower $ functionName sqlFunc)
+    spaces -- TODO careful here: what happens with upperVar? it breaks because of "upper" (maybe a blog entry!!)
+    args <- parenthesize $ argSepBy (minArgCount sqlFunc) parseExpression parseCommaSeparator
     return $ FunctionExpression sqlFunc args
     where argSepBy = if argCountIsFixed sqlFunc then sepByExactly else sepByAtLeast
 
@@ -425,16 +451,11 @@ parseReservedWord = do
             notFollowedBy alphaNum
             return parseVal
 
-reservedWords = ["BY",
-                 "CROSS",
-                 "FROM",
-                 "GROUP",
-                 "HAVING",
-                 "INNER",
-                 "JOIN",
-                 "ON",
-                 "SELECT",
-                 "WHERE"]
+reservedWords =
+    map functionName normalSyntaxFunctions ++
+    map functionName (concat infixFunctions) ++
+    map functionName specialFunctions ++
+    ["BY","CROSS", "FROM", "GROUP", "HAVING", "INNER", "JOIN", "ON", "SELECT", "WHERE"]
 
 upperOrLower stringToParse =
     string (map toUpper stringToParse) <|>
@@ -460,8 +481,15 @@ sepByExactly  :: Int -> GenParser tok st a -> GenParser tok st sep -> GenParser 
 sepByExactly count itemParser sepParser =
     let itemParsers = replicate count itemParser
     in parseEach itemParsers
-    where parseEach [] = return []
-          parseEach (headParser:parserTail) = do
+    where
+        -- for an empty parser list return an empty result
+        parseEach [] = return []
+        
+        -- for a parser list of 1 we don't want to use a separator
+        parseEach [lastParser] = lastParser >>= (\x -> return [x])
+        
+        -- for lists greater than 1 we do need to care about the separator
+        parseEach (headParser:parserTail) = do
             resultHead <- headParser
             sepParser
             resultTail <- parseEach parserTail
