@@ -19,6 +19,7 @@ module TxtSushi.SQLParser (
     ColumnIdentifier(..),
     ColumnSelection(..),
     Expression(..),
+    OrderByItem(..),
     SQLFunction(..),
     
     -- SQL functions with "normal" syntax
@@ -53,10 +54,12 @@ import Util.ListUtil
 --------------------------------------------------------------------------------
 
 -- | represents a select statement
+--   TODO this should be moved inside the TableExpression type
 data SelectStatement = SelectStatement {
     columnSelections :: [ColumnSelection],
     maybeFromTable :: Maybe TableExpression,
-    maybeWhereFilter :: Maybe Expression}
+    maybeWhereFilter :: Maybe Expression,
+    orderByItems :: [OrderByItem]}
     deriving (Show, Ord, Eq)
 
 data TableExpression =
@@ -115,28 +118,77 @@ data SQLFunction = SQLFunction {
     argCountIsFixed :: Bool}
     deriving (Show, Ord, Eq)
 
+data OrderByItem = OrderByItem {
+    orderExpression :: Expression,
+    orderAscending :: Bool}
+    deriving (Show, Ord, Eq)
+
+-- | Parses a SQL select statement
+parseSelectStatement :: GenParser Char st SelectStatement
 parseSelectStatement = do
     try $ upperOrLower "SELECT" >> spaces1
     parseSelectBody
 
+-- | Parses all of the stuff that comes after "SELECT "
+parseSelectBody :: GenParser Char st SelectStatement
 parseSelectBody = do
     columnVals <- parseColumnSelections
     -- TODO need a better error message for missing "ON" etc. in
     -- the from part, can do this by grabing "FROM" first
     maybeFrom <- maybeParseFromPart
-    maybeWhere <- maybeParseWherePart -- TODO what about spaces btwn from and where??
+    maybeWhere <- maybeParseWherePart
+    orderBy <- parseOrderByPart
+    
     spaces
     eof
     
     return SelectStatement {
         columnSelections    = columnVals,
         maybeFromTable      = maybeFrom,
-        maybeWhereFilter    = maybeWhere}
+        maybeWhereFilter    = maybeWhere,
+        orderByItems        = orderBy}
     
-    where maybeParseFromPart =
+    where
+        maybeParseFromPart =
             ifParseThen (spaces1 >> upperOrLower "FROM" >> spaces1) parseTableExpression
-          maybeParseWherePart =
+        
+        maybeParseWherePart =
             ifParseThen (spaces1 >> upperOrLower "WHERE" >> spaces1) parseExpression
+
+-- | Parses the "ORDER BY ..." part of a select statement returning the list
+--   of OrderByItem's that were parsed (this list will be empty if there is no
+--   "ORDER BY" parsed
+parseOrderByPart :: GenParser Char st [OrderByItem]
+parseOrderByPart =
+    ifParseThenElse
+        -- if we see an "ORDER BY"
+        (spaces1 >> upperOrLower "ORDER" >> spaces1 >> upperOrLower "BY" >> spaces1)
+        
+        -- then parse the order expression
+        (sepByAtLeast 1 parseOrderByItem parseCommaSeparator)
+        
+        -- else there is nothing to sort by
+        (return [])
+    
+    where
+        parseOrderByItem :: GenParser Char st OrderByItem
+        parseOrderByItem = do
+            orderExpr <- parseExpression
+            isAscending <- ifParseThenElse
+                -- if we parse "DESC"
+                (try parseDescending)
+                
+                -- then return false, it isn't ascending
+                (return False)
+                
+                -- else try to consume "ASC" but even if we don't it's still
+                -- ascending so return true
+                ((try parseAscending <|> return []) >> return True)
+            
+            return $ OrderByItem orderExpr isAscending
+        
+        parseAscending  = spaces >> ((try $ upperOrLower "ASCENDING") <|> upperOrLower "ASC")
+        parseDescending = spaces >> ((try $ upperOrLower "DESCENDING") <|> upperOrLower "DESC")
 
 --------------------------------------------------------------------------------
 -- Functions for parsing the column names specified after "SELECT"
@@ -478,7 +530,7 @@ maybeParse parser =
     return Nothing
 
 -- | parse `itemParser`s seperated by exactly `minCount` `sepParser`s
-sepByExactly  :: Int -> GenParser tok st a -> GenParser tok st sep -> GenParser tok st [a]
+sepByExactly :: Int -> GenParser tok st a -> GenParser tok st sep -> GenParser tok st [a]
 sepByExactly count itemParser sepParser =
     let itemParsers = replicate count itemParser
     in parseEach itemParsers
@@ -498,7 +550,7 @@ sepByExactly count itemParser sepParser =
             return $ resultHead:resultTail
 
 -- | parse `itemParser`s seperated by at least `minCount` `sepParser`s
-sepByAtLeast  :: Int -> GenParser tok st a -> GenParser tok st sep -> GenParser tok st [a]
+sepByAtLeast :: Int -> GenParser tok st a -> GenParser tok st sep -> GenParser tok st [a]
 sepByAtLeast minCount itemParser sepParser = do
     minResults <- sepByExactly minCount itemParser sepParser
     ifParseThenElse

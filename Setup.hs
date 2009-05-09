@@ -30,7 +30,8 @@ runTxtSushiTests _ _ _ _ = do
                                     ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}},
                                     ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table2", columnId = "col1"}}]},
                             maybeTableAlias = Nothing}),
-                    maybeWhereFilter = Nothing}
+                    maybeWhereFilter = Nothing,
+                    orderByItems = []}
         stmt1_1Txt =
             "select table1.col1, table2.* " ++
             "from table1 inner join table2 on table1.col1 = table2.col1"
@@ -62,7 +63,8 @@ runTxtSushiTests _ _ _ _ = do
                                     functionArguments = [ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}]},
                                 FunctionExpression {
                                     sqlFunction = SQLFunction {functionName = "LOWER", minArgCount = 1, argCountIsFixed = True},
-                                    functionArguments = [ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}]}]})}
+                                    functionArguments = [ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}]}]}),
+                    orderByItems = []}
         stmt2_1Txt =
             "select table1.col1, table2.* " ++
             "from table1 join table2 on table1.col1 = table2.col1 " ++
@@ -71,11 +73,45 @@ runTxtSushiTests _ _ _ _ = do
             "select table1.col1, table2.* " ++
             "from table1 join table2 on table1.col1 = table2.col1 " ++
             "where upper(table1.col1) <> lower(table1.col1)"
+        
+        -- test statement 3
+        stmt3 = SelectStatement {
+                    columnSelections = [
+                        QualifiedColumn {qualifiedColumnId = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}},
+                        AllColumnsFrom {sourceTableName = "table2"}],
+                    maybeFromTable = Just (
+                        InnerJoin {
+                            leftJoinTable = TableIdentifier {tableName = "table1", maybeTableAlias = Nothing},
+                            rightJoinTable = TableIdentifier {tableName = "table2", maybeTableAlias = Nothing},
+                            onCondition = FunctionExpression {
+                                sqlFunction = SQLFunction {functionName = "=", minArgCount = 2, argCountIsFixed = True},
+                                functionArguments = [
+                                    ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}},
+                                    ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table2", columnId = "col1"}}]},
+                            maybeTableAlias = Nothing}),
+                    maybeWhereFilter = Just (
+                        FunctionExpression {
+                            sqlFunction = SQLFunction {functionName = "<>", minArgCount = 2, argCountIsFixed = True},
+                            functionArguments = [
+                                FunctionExpression {
+                                    sqlFunction = SQLFunction {functionName = "UPPER", minArgCount = 1, argCountIsFixed = True},
+                                    functionArguments = [ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}]},
+                                FunctionExpression {
+                                    sqlFunction = SQLFunction {functionName = "LOWER", minArgCount = 1, argCountIsFixed = True},
+                                    functionArguments = [ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}]}]}),
+                    orderByItems = [OrderByItem {
+                        orderExpression = ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "firstName"}},
+                        orderAscending = True}]}
+        stmt3_1Txt =
+            "select table1.col1, table2.* " ++
+            "from table1 join table2 on table1.col1 = table2.col1 " ++
+            "where upper(table1.col1)<>lower(table1.col1) order by table1.firstName"
     
     testSqlSelect stmt1 stmt1_1Txt
     testSqlSelect stmt1 stmt1_2Txt
     testSqlSelect stmt2 stmt2_1Txt
     testSqlSelect stmt2 stmt2_2Txt
+    testSqlSelect stmt3 stmt3_1Txt
 
 testSqlSelect :: SelectStatement -> String -> IO ()
 testSqlSelect expectedResult selectStatementText = do
