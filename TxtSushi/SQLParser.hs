@@ -18,8 +18,8 @@ module TxtSushi.SQLParser (
     TableExpression(..),
     ColumnIdentifier(..),
     ColumnSelection(..),
-    Expression,
-    SQLFunction,
+    Expression(..),
+    SQLFunction(..),
     
     -- SQL functions with "normal" syntax
     upperFunction,
@@ -29,7 +29,6 @@ module TxtSushi.SQLParser (
     -- Algebraic infix SQL functions
     multiplyFunction,
     divideFunction,
-    argCountIsFixed,
     plusFunction,
     minusFunction,
     
@@ -46,6 +45,7 @@ module TxtSushi.SQLParser (
 import Data.Char
 import Data.List
 import Text.ParserCombinators.Parsec
+import Text.ParserCombinators.Parsec.Expr
 import Util.ListUtil
 
 --------------------------------------------------------------------------------
@@ -263,8 +263,12 @@ parseTableAlias = upperOrLower "AS" >> spaces1 >> parseIdentifier
 --------------------------------------------------------------------------------
 
 parseExpression =
+    let opTable = map (map parseInfixOp) infixFunctions
+    in buildExpressionParser opTable parseAnyNonInfixExpression
+
+parseAnyNonInfixExpression =
+    parenthesize parseExpression <|>
     parseAnyNormalFunction <|>
-    --parseAnyInfixFunction <|>
     (parseColumnId >>= (\colId -> return $ ColumnExpression colId))
 
 parseAnyNormalFunction =
@@ -307,6 +311,21 @@ infixFunctions =
      [isFunction, isNotFunction, lessThanFunction, lessThanOrEqualToFunction,
       greaterThanFunction, greaterThanOrEqualToFunction],
      [andFunction, orFunction]]
+
+-- | This function parses the operator part of the infix function and returns
+--   a function that excepts a left expression and right expression to form
+--   an Expression from the FunctionExpression constructor
+parseInfixOp infixFunc =
+    -- use the magic infix type, always assuming left associativity
+    Infix opParser AssocLeft
+    where opParser = do
+                -- TODO double check the spaces logic here
+                try (spaces >> (string $ functionName infixFunc)) >> spaces
+                return $ buildExpr
+          buildExpr leftSubExpr rightSubExpr =
+                FunctionExpression {
+                    sqlFunction = infixFunc,
+                    functionArguments = [leftSubExpr, rightSubExpr]}
 
 -- Algebraic
 multiplyFunction = SQLFunction {
