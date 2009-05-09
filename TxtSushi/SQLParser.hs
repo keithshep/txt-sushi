@@ -469,6 +469,8 @@ escapedQuote quoteChar = string [quoteChar, quoteChar] >> return quoteChar
 
 parseCommaSeparator = spaces >> char ',' >> spaces
 
+-- | Wraps parentheses parsers around the given inner parser
+parenthesize :: GenParser Char st a -> GenParser Char st a
 parenthesize innerParser = do
     char '('
     spaces
@@ -477,18 +479,27 @@ parenthesize innerParser = do
     char ')'
     return innerParseResults
 
+-- | Either parses the left or right parser returning the result of the
+--   successful parser
+eitherParse :: GenParser tok st a -> GenParser tok st b -> GenParser tok st (Either a b)
 eitherParse leftParser rightParser =
     do {parseResult <- try leftParser; return $ Left parseResult} <|>
     do {parseResult <- rightParser; return $ Right parseResult}
 
+-- parses 1 or more spaces
 spaces1 = skipMany1 space <?> "whitespace"
 
+-- | if the ifParse parser succeeds return the result of thenParse, else
+--   return Nothing without parsing any input
+ifParseThen :: GenParser tok st a -> GenParser tok st b -> GenParser tok st (Maybe b)
 ifParseThen ifParse thenPart = do
     ifResult <- maybeParse ifParse
     case ifResult of
         Just _ ->   thenPart >>= (\x -> return $ Just x)
         Nothing ->  return Nothing
 
+-- | if ifParse succeeds then parse thenPart otherwise parse elsePart
+ifParseThenElse :: GenParser tok st a -> GenParser tok st b -> GenParser tok st b -> GenParser tok st b
 ifParseThenElse ifParse thenPart elsePart = do
     ifResult <- maybeParse ifParse
     case ifResult of
@@ -510,14 +521,22 @@ reservedWords =
     map functionName specialFunctions ++
     ["BY","CROSS", "FROM", "GROUP", "HAVING", "INNER", "JOIN", "ON", "SELECT", "WHERE"]
 
+-- | tries parsing both the upper and lower case versions of the given string
+upperOrLower :: String -> GenParser Char st String
 upperOrLower stringToParse =
     string (map toUpper stringToParse) <|>
     string (map toLower stringToParse) <?> stringToParse
 
+-- | accepst the same input as the given parser except and input that matches
+--   theException parser
+genExcept :: (Show b) => GenParser tok st a -> GenParser tok st b -> GenParser tok st a
 genExcept parser theException = do
     genNotFollowedBy theException
     parser
 
+-- | a generic version of the notFollowedBy library function. We require
+--   Show types so that we can better report failures
+genNotFollowedBy :: (Show a) => GenParser tok st a -> GenParser tok st ()
 genNotFollowedBy theParser = try $ do
     mayParseResult <- maybeParse theParser
     case mayParseResult of
@@ -525,6 +544,7 @@ genNotFollowedBy theParser = try $ do
         Just x -> unexpected $ show x
 
 -- | returns Just parseResult if the parse succeeds and Nothing if it fails
+maybeParse :: GenParser tok st a -> GenParser tok st (Maybe a)
 maybeParse parser =
     (try parser >>= (\x -> return $ Just x)) <|>
     return Nothing
