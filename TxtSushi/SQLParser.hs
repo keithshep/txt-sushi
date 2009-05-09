@@ -66,9 +66,7 @@ data TableExpression =
     InnerJoin {
         leftJoinTable :: TableExpression,
         rightJoinTable :: TableExpression,
-        -- TODO this should eventually be more general like
-        -- joinCondition :: ConditionalExpression}
-        joinColumns :: [(ColumnIdentifier, ColumnIdentifier)],
+        onCondition :: Expression,
         maybeTableAlias :: Maybe String} |
     CrossJoin {
         leftJoinTable :: TableExpression,
@@ -200,19 +198,6 @@ parseTableExpression = do
 parseNextTblExpChunk =
     parenthesize parseTableExpression <|>  parseTableIdentifier
 
-parseJoinColumns = sepBy1 parseColEqCol (try parseAndSeparator)
-
-parseAndSeparator = spaces1 >> upperOrLower "AND" >> spaces1
-
-parseColEqCol = do
-    leftCol <- parseColumnId
-    spaces
-    string "="
-    spaces
-    rightCol <- parseColumnId
-    
-    return (leftCol, rightCol)
-
 parseCrossJoinKeywords = do
     spaces1
     upperOrLower "CROSS"
@@ -232,14 +217,14 @@ parseInnerJoinRemainder leftTblExpr = do
     spaces1
     upperOrLower "ON"
     spaces1
-    colIds <- parseJoinColumns
+    onPart <- parseExpression
     
     maybeAlias <- maybeParse $ spaces1 >> parseTableAlias
     
     return InnerJoin {
             leftJoinTable=leftTblExpr,
             rightJoinTable=rightTblExpr,
-            joinColumns=colIds,
+            onCondition=onPart,
             maybeTableAlias=maybeAlias}
 
 parseCrossJoinRemainder leftTblExpr = do
@@ -300,10 +285,6 @@ trimFunction = SQLFunction {
     minArgCount     = 1,
     argCountIsFixed = True}
 
--- TODO we need to care about operator precidence
---parseInfixFunction =
---    let allInfixOps = map (try . string) (map functionName (concat infixFunctions))
-
 -- Infix functions --
 infixFunctions =
     [[multiplyFunction, divideFunction],
@@ -320,7 +301,7 @@ parseInfixOp infixFunc =
     Infix opParser AssocLeft
     where opParser = do
                 -- TODO double check the spaces logic here
-                try (spaces >> (string $ functionName infixFunc)) >> spaces
+                try (spaces >> (upperOrLower $ functionName infixFunc)) >> spaces
                 return $ buildExpr
           buildExpr leftSubExpr rightSubExpr =
                 FunctionExpression {
@@ -470,6 +451,7 @@ parseReservedWord = do
             notFollowedBy alphaNum
             return parseVal
 
+-- TODO are function names reserved... i don't think so
 reservedWords =
     map functionName normalSyntaxFunctions ++
     map functionName (concat infixFunctions) ++

@@ -24,9 +24,11 @@ runTxtSushiTests _ _ _ _ = do
                         InnerJoin {
                             leftJoinTable = TableIdentifier {tableName = "table1", maybeTableAlias = Nothing},
                             rightJoinTable = TableIdentifier {tableName = "table2", maybeTableAlias = Nothing},
-                            joinColumns = [
-                                (ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"},
-                                ColumnIdentifier {maybeTableName = Just "table2", columnId = "col1"})],
+                            onCondition = FunctionExpression {
+                                sqlFunction = SQLFunction {functionName = "=", minArgCount = 2, argCountIsFixed = True},
+                                functionArguments = [
+                                    ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}},
+                                    ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table2", columnId = "col1"}}]},
                             maybeTableAlias = Nothing}),
                     maybeWhereFilter = Nothing}
         stmt1_1Txt =
@@ -45,9 +47,11 @@ runTxtSushiTests _ _ _ _ = do
                         InnerJoin {
                             leftJoinTable = TableIdentifier {tableName = "table1", maybeTableAlias = Nothing},
                             rightJoinTable = TableIdentifier {tableName = "table2", maybeTableAlias = Nothing},
-                            joinColumns = [
-                                (ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"},
-                                ColumnIdentifier {maybeTableName = Just "table2", columnId = "col1"})],
+                            onCondition = FunctionExpression {
+                                sqlFunction = SQLFunction {functionName = "=", minArgCount = 2, argCountIsFixed = True},
+                                functionArguments = [
+                                    ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}},
+                                    ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table2", columnId = "col1"}}]},
                             maybeTableAlias = Nothing}),
                     maybeWhereFilter = Just (
                         FunctionExpression {

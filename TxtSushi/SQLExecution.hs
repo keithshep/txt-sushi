@@ -74,10 +74,11 @@ evalTableExpression tblExpr tableMap =
                 maybeRename maybeTblAlias table
         
         -- TODO inner join should allow joining on expressions too!!
-        InnerJoin leftJoinTblExpr rightJoinTblExpr joinCols maybeTblAlias ->
+        InnerJoin leftJoinTblExpr rightJoinTblExpr onConditionExpr maybeTblAlias ->
             let
                 leftJoinTbl = evalTableExpression leftJoinTblExpr tableMap
                 rightJoinTbl = evalTableExpression rightJoinTblExpr tableMap
+                joinCols = extractJoinCols onConditionExpr
                 joinIndices = joinColumnIndices leftJoinTbl rightJoinTbl joinCols
                 joinedTbl = innerJoin joinIndices leftJoinTbl rightJoinTbl
             in
@@ -91,6 +92,27 @@ evalTableExpression tblExpr tableMap =
         maybeRename Nothing table = table
         maybeRename (Just newName) table = table {
             columnIdentifiers = map (\colId -> colId {maybeTableName = Just newName}) (columnIdentifiers table)}
+
+extractJoinCols (FunctionExpression sqlFunc [arg1, arg2]) =
+    case sqlFunc of
+        SQLFunction "AND" _ _ -> extractJoinCols arg1 ++ extractJoinCols arg2
+        SQLFunction "=" _ _ -> extractJoinColPair arg1 arg2
+        
+        -- Only expecting "AND" or "="
+        otherwise -> onPartFormattingError
+    where
+        extractJoinColPair (ColumnExpression col1) (ColumnExpression col2) = [(col1, col2)]
+        
+        -- Only expecting "AND" or "="
+        extractJoinColPair _ _ = onPartFormattingError
+
+-- Only expecting "AND" or "="
+extractJoinCols _ = onPartFormattingError
+
+onPartFormattingError =
+    error $ "The \"ON\" part of a join must only contain column equalities " ++
+            "joined together by \"AND\" like: " ++
+            "\"tbl1.id1 = table2.id1 AND tbl1.firstname = tbl2.name\""
 
 -- | perform an inner join using the given join indices on the given
 --   tables
