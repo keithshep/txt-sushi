@@ -17,6 +17,7 @@ module TxtSushi.SQLParser (
     SelectStatement(..),
     TableExpression(..),
     ColumnIdentifier(..),
+    prettyFormatColumn,
     ColumnSelection(..),
     Expression(..),
     OrderByItem(..),
@@ -99,6 +100,12 @@ data ColumnIdentifier =
         maybeTableName :: Maybe String,
         columnId :: String}
     deriving (Show, Ord, Eq)
+
+-- | I wanted to leave the default Show, but I also wanted a pretty print, so
+--   here it is!
+prettyFormatColumn :: ColumnIdentifier -> String
+prettyFormatColumn (ColumnIdentifier (Just tblName) colId) = tblName ++ "." ++ colId
+prettyFormatColumn (ColumnIdentifier (Nothing) colId) = colId
 
 data Expression =
     FunctionExpression {
