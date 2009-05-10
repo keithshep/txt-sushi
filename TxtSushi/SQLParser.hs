@@ -196,8 +196,8 @@ parseOrderByPart =
             
             return $ OrderByItem orderExpr isAscending
         
-        parseAscending  = spaces >> ((try $ upperOrLower "ASCENDING") <|> upperOrLower "ASC")
-        parseDescending = spaces >> ((try $ upperOrLower "DESCENDING") <|> upperOrLower "DESC")
+        parseAscending  = spaces1 >> ((try $ upperOrLower "ASCENDING") <|> upperOrLower "ASC")
+        parseDescending = spaces1 >> ((try $ upperOrLower "DESCENDING") <|> upperOrLower "DESC")
 
 --------------------------------------------------------------------------------
 -- Functions for parsing the column names specified after "SELECT"
@@ -406,14 +406,22 @@ infixFunctions =
 parseInfixOp infixFunc =
     -- use the magic infix type, always assuming left associativity
     Infix opParser AssocLeft
-    where opParser = do
-                -- TODO double check the spaces logic here
-                try (spaces >> (upperOrLower $ functionName infixFunc)) >> spaces
+    where
+        opParser =
+            if funcIsAlphaNum
+            then do
+                try (spaces1 >> (upperOrLower $ functionName infixFunc) >> spaces1)
                 return $ buildExpr
-          buildExpr leftSubExpr rightSubExpr =
-                FunctionExpression {
-                    sqlFunction = infixFunc,
-                    functionArguments = [leftSubExpr, rightSubExpr]}
+            else do
+                try (spaces >> (upperOrLower $ functionName infixFunc) >> notOpChar) >> spaces
+                return $ buildExpr
+        buildExpr leftSubExpr rightSubExpr =
+            FunctionExpression {
+                sqlFunction = infixFunc,
+                functionArguments = [leftSubExpr, rightSubExpr]}
+        funcIsAlphaNum = any isAlphaNum (functionName infixFunc)
+        notOpChar =
+            notFollowedBy $ oneOf "*/+-=<>^"
 
 -- Algebraic
 multiplyFunction = SQLFunction {
@@ -574,7 +582,7 @@ reservedWords =
     map functionName normalSyntaxFunctions ++
     map functionName (concat infixFunctions) ++
     map functionName specialFunctions ++
-    ["BY","CROSS", "FROM", "GROUP", "HAVING", "INNER", "JOIN", "ON", "SELECT", "WHERE"]
+    ["BY","CROSS", "FROM", "GROUP", "HAVING", "INNER", "JOIN", "ON", "ORDER", "SELECT", "WHERE"]
 
 -- | tries parsing both the upper and lower case versions of the given string
 upperOrLower :: String -> GenParser Char st String
