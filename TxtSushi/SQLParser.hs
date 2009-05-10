@@ -116,7 +116,9 @@ data Expression =
     StringConstantExpression {
         stringConstant :: String} |
     IntegerConstantExpression {
-        intConstant :: Int}
+        intConstant :: Int} |
+    RealConstantExpression {
+        realConstant :: Double}
     deriving (Show, Ord, Eq)
 
 data SQLFunction = SQLFunction {
@@ -306,15 +308,61 @@ parseTableAlias = upperOrLower "AS" >> spaces1 >> parseIdentifier
 -- Expression parsing: These can be after "SELECT", "WHERE" or "HAVING"
 --------------------------------------------------------------------------------
 
+parseExpression :: GenParser Char st Expression
 parseExpression =
     let opTable = map (map parseInfixOp) infixFunctions
     in buildExpressionParser opTable parseAnyNonInfixExpression
 
+parseAnyNonInfixExpression :: GenParser Char st Expression
 parseAnyNonInfixExpression =
     parenthesize parseExpression <|>
+    parseStringConstant <|>
+    try parseRealConstant <|>
+    parseIntConstant <|>
     parseAnyNormalFunction <|>
     (parseColumnId >>= (\colId -> return $ ColumnExpression colId))
 
+parseStringConstant :: GenParser Char st Expression
+parseStringConstant =
+    quotedText True '"' >>= (\txt -> return $ StringConstantExpression txt)
+
+parseIntConstant :: GenParser Char st Expression
+parseIntConstant =
+    parseInt >>= (\int -> return $ IntegerConstantExpression int)
+
+parseInt :: GenParser Char st Int
+parseInt = do
+    digitTxt <- anyParseTxt
+    return $ read digitTxt
+    where
+        anyParseTxt = signedParseTxt <|> unsignedParseTxt <?> "integer"
+        unsignedParseTxt = many1 digit
+        signedParseTxt = do
+            char '-'
+            unsignedDigitTxt <- unsignedParseTxt
+            return ('-':unsignedDigitTxt)
+
+parseRealConstant :: GenParser Char st Expression
+parseRealConstant =
+    parseReal >>= (\real -> return $ RealConstantExpression real)
+
+parseReal :: GenParser Char st Double
+parseReal = do
+    realTxt <- anyParseTxt
+    return $ read realTxt
+    where
+        anyParseTxt = signedParseTxt <|> unsignedParseTxt <?> "real"
+        unsignedParseTxt = do
+            intTxt <- many1 digit
+            char '.'
+            fracTxt <- many1 digit
+            return $ intTxt ++ "." ++ fracTxt
+        signedParseTxt = do
+            char '-'
+            unsignedDigitTxt <- unsignedParseTxt
+            return ('-':unsignedDigitTxt)
+
+parseAnyNormalFunction :: GenParser Char st Expression
 parseAnyNormalFunction =
     let allParsers = map parseNormalFunction normalSyntaxFunctions
     in choice allParsers
