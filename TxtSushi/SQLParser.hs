@@ -425,7 +425,7 @@ andFunction = SQLFunction {
     argCountIsFixed = True}
 
 orFunction = SQLFunction {
-    functionName    = ">",
+    functionName    = "OR",
     minArgCount     = 2,
     argCountIsFixed = True}
 
