@@ -16,6 +16,7 @@ module TxtSushi.SQLExecution (
     databaseTableToTextTable,
     textTableToDatabaseTable) where
 
+import Data.Char
 import Data.List
 import qualified Data.Map as Map
 
@@ -173,16 +174,142 @@ columnSelectionIndices colIds (AllColumnsFrom srcTblName) =
           matchesSrcTblName (Just tblName)  = tblName == srcTblName
 
 columnSelectionIndices colIds (QualifiedColumn colId) =
-    findIndices matchesCol colIds
-    where matchesCol colId2 =
-            case colId of
-                ColumnIdentifier Nothing colIdStr ->
-                    -- In this case we don't care about the table name so
-                    -- just check to make sure that the column names match up
-                    colIdStr == columnId colId2
-                otherwise ->
-                    -- table name is important here so match on the whole
-                    -- object
-                    colId == colId2
+    findIndices (columnMatches colId) colIds
 
-filterRowsBy filterExpr table = table -- TODO implement me.. maybe aliases
+-- | This is a little different that a strict equals compare in that it returns
+--   true if the query column has a Nothing table and the column name part
+--   matches the reference column's name. Also not that this makes it
+--   an asymetric comparison
+columnMatches :: ColumnIdentifier -> ColumnIdentifier -> Bool
+columnMatches (ColumnIdentifier Nothing queryColIdStr) referenceColumn =
+    -- In this case we don't care about the table name so
+    -- just check to make sure that the column names match up
+    queryColIdStr == columnId referenceColumn
+
+columnMatches queryColumn referenceColumn =
+    -- table name is important here so match on the whole object
+    queryColumn == referenceColumn
+
+--------------------------------------------------------------------------------
+-- Expression Evaluation
+--------------------------------------------------------------------------------
+
+-- | filters the database's table rows on the given expression
+filterRowsBy :: Expression -> DatabaseTable -> DatabaseTable
+filterRowsBy filterExpr table =
+    table {tableRows = filter myBoolEvalExpr (tableRows table)}
+    where myBoolEvalExpr row =
+            boolValue $ evalExpression filterExpr (columnIdentifiers table) row
+
+evalExpression :: Expression -> [ColumnIdentifier] -> [String] -> EvaluatedExpression
+-- Here's the easy stuff. evaluate constants
+evalExpression (StringConstantExpression string) _ _ = stringExpression string
+evalExpression (IntegerConstantExpression int) _ _ = intExpression int
+evalExpression (RealConstantExpression real) _ _ = realExpression real
+
+-- A little bit harder. evaluate a column expression
+evalExpression (ColumnExpression col) columnIds tblRow =
+    case findIndex (columnMatches col) columnIds of
+        Just colIndex -> stringExpression $ tblRow !! colIndex
+        Nothing -> error $ "Failed to find column named: " ++ (prettyFormatColumn col)
+
+-- this is where the action is. evaluate a function
+evalExpression (FunctionExpression sqlFun funArgs) columnIds tblRow
+    -- String functions
+    | sqlFun == upperFunction = stringExpression $ map toUpper (stringValue (head evaluatedArgs))
+    | sqlFun == lowerFunction = stringExpression $ map toLower (stringValue (head evaluatedArgs))
+    | sqlFun == trimFunction = stringExpression $ trimSpace (stringValue (head evaluatedArgs)) -- TODO SQL trim takes params
+    
+    -- algebraic infix functions
+    | sqlFun == multiplyFunction = algebraWithCoercion (*) (*) evaluatedArgs
+    | sqlFun == divideFunction = realExpression $ foldl1' (/) (map realValue evaluatedArgs)
+    | sqlFun == plusFunction = algebraWithCoercion (+) (+) evaluatedArgs
+    | sqlFun == minusFunction = algebraWithCoercion (-) (-) evaluatedArgs
+    
+    -- boolean infix functions
+    | sqlFun == isFunction = boolExpression (arg1 == arg2)
+    | sqlFun == isNotFunction = boolExpression (arg1 /= arg2)
+    | sqlFun == lessThanFunction = boolExpression (arg1 < arg2)
+    | sqlFun == lessThanOrEqualToFunction = boolExpression (arg1 <= arg2)
+    | sqlFun == greaterThanFunction = boolExpression (arg1 > arg2)
+    | sqlFun == greaterThanOrEqualToFunction = boolExpression (arg1 >= arg2)
+    | sqlFun == andFunction = boolExpression $ (boolValue arg1) && (boolValue arg2)
+    | sqlFun == orFunction = boolExpression $ (boolValue arg1) || (boolValue arg2)
+    
+    where
+        arg1 = head evaluatedArgs
+        arg2 = evaluatedArgs !! 1
+        evaluatedArgs = map evalArgExpr funArgs
+        evalArgExpr expr = evalExpression expr columnIds tblRow
+        algebraWithCoercion intFunc realFunc args =
+            if any useRealAlgebra args then
+                realExpression $ foldl1' realFunc (map realValue args)
+            else
+                intExpression $ foldl1' intFunc (map intValue args)
+        
+        useRealAlgebra expr =
+            let prefType = preferredType expr
+            in prefType == StringType || prefType == RealType
+
+stringExpression :: String -> EvaluatedExpression
+stringExpression string = EvaluatedExpression {
+    preferredType   = StringType,
+    intValue        = read string,
+    realValue       = read string,
+    stringValue     = string,
+    boolValue       =
+        (map toLower string /= "false") && (string /= "") && (string /= "0")}
+
+intExpression int = EvaluatedExpression {
+    preferredType   = IntType,
+    intValue        = int,
+    realValue       = fromIntegral int,
+    stringValue     = show int,
+    boolValue       = int /= 0}
+
+realExpression real = EvaluatedExpression {
+    preferredType   = RealType,
+    intValue        = floor real,
+    realValue       = real,
+    stringValue     = show real,
+    boolValue       = real /= 0.0}
+
+boolExpression bool = EvaluatedExpression {
+    preferredType   = BoolType,
+    intValue        = if bool then 1 else 0,
+    realValue       = if bool then 1.0 else 0.0,
+    stringValue     = show bool,
+    boolValue       = bool}
+
+data ExpressionType = StringType | RealType | IntType | BoolType deriving Eq
+
+data EvaluatedExpression = EvaluatedExpression {
+    preferredType   :: ExpressionType,
+    stringValue     :: String,
+    realValue       :: Double,
+    intValue        :: Int,
+    boolValue       :: Bool}
+
+instance Eq EvaluatedExpression where
+    -- base off of the Ord definition
+    expr1 == expr2 = compare expr1 expr2 == EQ
+
+instance Ord EvaluatedExpression where
+    -- compare on string based on preferred type
+    compare (EvaluatedExpression StringType string1 _ _ _) expr2 = compare string1 (stringValue expr2)
+    compare expr1 (EvaluatedExpression StringType string2 _ _ _) = compare (stringValue expr1) string2
+    
+    -- compare on real based on preferred type
+    compare (EvaluatedExpression RealType _ real1 _ _) expr2 = compare real1 (realValue expr2)
+    compare expr1 (EvaluatedExpression RealType _ real2 _ _) = compare (realValue expr1) real2
+    
+    -- compare on int based on preferred type
+    compare (EvaluatedExpression IntType _ _ int1 _) expr2 = compare int1 (intValue expr2)
+    compare expr1 (EvaluatedExpression IntType _ _ int2 _) = compare (intValue expr1) int2
+    
+    -- compare on bool based on preferred type (we know it's a bool here)
+    compare expr1 expr2 = compare (boolValue expr1) (boolValue expr2)
+
+trimSpace :: String -> String
+trimSpace = f . f
+   where f = reverse . dropWhile isSpace
