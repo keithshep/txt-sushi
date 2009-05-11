@@ -24,6 +24,9 @@ import TxtSushi.SQLParser
 import TxtSushi.Transform
 
 -- | an SQL table data structure
+--   TODO: need allColumnsColumnIdentifiers and allColumnsTableRows so that
+--         we can filter and order on columns that are selected out. we also
+--         should track any column ordering that is in place
 data DatabaseTable = DatabaseTable {
     -- | the columns in this table
     columnIdentifiers :: [ColumnIdentifier],
@@ -33,6 +36,7 @@ data DatabaseTable = DatabaseTable {
 
 emptyTable = DatabaseTable [] []
 
+-- convert a text table to a database table by using the 1st row as column IDs
 textTableToDatabaseTable :: String -> [[String]] -> DatabaseTable
 textTableToDatabaseTable tableName (headerNames:tblRows) =
     DatabaseTable (map makeColId headerNames) tblRows
@@ -56,10 +60,59 @@ select selectStatement tableMap =
         filteredTbl = case maybeWhereFilter selectStatement of
             Nothing -> fromTbl
             Just expr -> filterRowsBy expr fromTbl
+        orderedTbl = orderRowsBy (orderByItems selectStatement) filteredTbl
         selectedTbl =
-            selectTableColumns (columnSelections selectStatement) filteredTbl
+            selectTableColumns (columnSelections selectStatement) orderedTbl
     in
         selectedTbl
+
+-- | sorts table rows by the given order by items
+orderRowsBy :: [OrderByItem] -> DatabaseTable -> DatabaseTable
+orderRowsBy [] dbTable = dbTable
+orderRowsBy orderBys dbTable =
+    let
+        -- curry in the order and col ID params to make a row comparison function
+        compareFunc = compareRowsOnOrderItems orderBys (columnIdentifiers dbTable)
+    in
+        dbTable {tableRows = sortBy compareFunc (tableRows dbTable)}
+
+-- | Compares two rows using the given OrderByItem and column ID's
+compareRowsOnOrderItems :: [OrderByItem] -> [ColumnIdentifier] -> [String] -> [String] -> Ordering
+compareRowsOnOrderItems orderBys colIds row1 row2 =
+    cascadingOrder $ toOrderList orderBys
+    where
+        toOrderList [] = []
+        toOrderList (orderBy:orderByTail) =
+            (compareRowsOnOrderItem orderBy colIds row1 row2):(toOrderList orderByTail)
+
+-- | Compares two rows using the given OrderByItem and column ID's
+compareRowsOnOrderItem :: OrderByItem -> [ColumnIdentifier] -> [String] -> [String] -> Ordering
+compareRowsOnOrderItem orderBy colIds row1 row2 =
+    let
+        orderExpr = orderExpression orderBy
+        row1Eval = evalExpression orderExpr colIds row1
+        row2Eval = evalExpression orderExpr colIds row2
+        rowComp = row1Eval `compare` row2Eval
+    in
+        if orderAscending orderBy then
+            rowComp
+        else
+            reverseOrdering rowComp
+
+-- | reverses the given ordering. pretty CRAZY huh???
+reverseOrdering :: Ordering -> Ordering
+reverseOrdering EQ = EQ
+reverseOrdering LT = GT
+reverseOrdering GT = LT
+
+-- | applies a cascading order logic where 1st non-equal ordering defines
+--   the ordering for the list. If they're all equal (or the list is empty)
+--   then return EQ
+cascadingOrder :: [Ordering] -> Ordering
+cascadingOrder [] = EQ
+cascadingOrder (LT:_) = LT
+cascadingOrder (GT:_) = GT
+cascadingOrder (EQ:tailOrders) = cascadingOrder tailOrders
 
 -- | Evaluate the FROM table part, and returns the FROM table. Also returns
 --   a mapping of new table names from aliases etc.
@@ -122,6 +175,7 @@ innerJoin joinIndices leftJoinTbl rightJoinTbl = DatabaseTable {
     columnIdentifiers = (columnIdentifiers leftJoinTbl) ++ (columnIdentifiers rightJoinTbl),
     tableRows = joinTables joinIndices (tableRows leftJoinTbl) (tableRows rightJoinTbl)}
 
+-- | convert the column ID pairs into index pairs
 joinColumnIndices :: DatabaseTable -> DatabaseTable -> [(ColumnIdentifier, ColumnIdentifier)] -> [(Int, Int)]
 joinColumnIndices leftJoinTbl rightJoinTbl joinCols =
     let
@@ -130,6 +184,7 @@ joinColumnIndices leftJoinTbl rightJoinTbl joinCols =
     in
         map (idPairToIndexPair leftHeader rightHeader) joinCols
 
+-- | convert the column ID pair into an index pair
 idPairToIndexPair :: [ColumnIdentifier] -> [ColumnIdentifier] -> (ColumnIdentifier, ColumnIdentifier) -> (Int, Int)
 idPairToIndexPair leftColIds rightColIds joinColPair@(leftColId, rightColId) =
     let
@@ -310,6 +365,7 @@ instance Ord EvaluatedExpression where
     -- compare on bool based on preferred type (we know it's a bool here)
     compare expr1 expr2 = compare (boolValue expr1) (boolValue expr2)
 
+-- | trims leading and trailing spaces
 trimSpace :: String -> String
 trimSpace = f . f
    where f = reverse . dropWhile isSpace
