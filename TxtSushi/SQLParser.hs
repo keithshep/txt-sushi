@@ -19,8 +19,10 @@ module TxtSushi.SQLParser (
     ColumnIdentifier(..),
     prettyFormatColumn,
     ColumnSelection(..),
+    expressionIdentifier,
     Expression(..),
     OrderByItem(..),
+    prettyFormatWithArgs,
     SQLFunction(..),
     
     -- SQL functions with "normal" syntax
@@ -42,7 +44,11 @@ module TxtSushi.SQLParser (
     greaterThanFunction,
     greaterThanOrEqualToFunction,
     andFunction,
-    orFunction) where
+    orFunction,
+    
+    -- Etc...
+    maybeReadInt,
+    maybeReadReal) where
 
 import Data.Char
 import Data.List
@@ -78,6 +84,8 @@ data TableExpression =
         maybeTableAlias :: Maybe String}
     deriving (Show, Ord, Eq)
 
+-- | convenience function for extracting all of the table names used by the
+--   given table expression
 allMaybeTableNames :: (Maybe TableExpression) -> [String]
 allMaybeTableNames Nothing = []
 allMaybeTableNames (Just tblExp) = allTableNames tblExp
@@ -91,8 +99,9 @@ allTableNames (CrossJoin lftTbl rtTbl _) =
 data ColumnSelection =
     AllColumns |
     AllColumnsFrom {sourceTableName :: String} |
-    QualifiedColumn {
-        qualifiedColumnId :: ColumnIdentifier}
+    ExpressionColumn {expression :: Expression}
+    --QualifiedColumn {
+    --    qualifiedColumnId :: ColumnIdentifier}
     deriving (Show, Ord, Eq)
 
 data ColumnIdentifier =
@@ -120,6 +129,44 @@ data Expression =
     RealConstantExpression {
         realConstant :: Double}
     deriving (Show, Ord, Eq)
+
+expressionIdentifier :: Expression -> ColumnIdentifier
+expressionIdentifier (FunctionExpression func args) =
+    ColumnIdentifier Nothing ((prettyFormatWithArgs func) args)
+expressionIdentifier (ColumnExpression col) = col
+expressionIdentifier (StringConstantExpression str) =
+    ColumnIdentifier Nothing ("\"" ++ str ++ "\"")
+expressionIdentifier (IntegerConstantExpression int) =
+    ColumnIdentifier Nothing (show int)
+expressionIdentifier (RealConstantExpression real) =
+    ColumnIdentifier Nothing (show real)
+
+needsParens :: Expression -> Bool
+needsParens (FunctionExpression _ _) = True
+needsParens _ = False
+
+toArgString :: Expression -> String
+toArgString expr =
+    let exprFmt = prettyFormatColumn $ expressionIdentifier expr
+    in if needsParens expr then "(" ++ exprFmt ++ ")" else exprFmt
+
+prettyFormatWithArgs :: SQLFunction -> [Expression] -> String
+prettyFormatWithArgs sqlFunc funcArgs
+    | sqlFunc `elem` normalSyntaxFunctions = prettyFormatNormalFunctionExpression sqlFunc funcArgs
+    | or (map (sqlFunc `elem`) infixFunctions) = prettyFormatInfixFunctionExpression sqlFunc funcArgs
+
+prettyFormatInfixFunctionExpression :: SQLFunction -> [Expression] -> String
+prettyFormatInfixFunctionExpression sqlFunc funcArgs =
+    let
+        arg1 = head funcArgs
+        arg2 = funcArgs !! 1
+    in
+        toArgString arg1 ++ functionName sqlFunc ++ toArgString arg2
+
+prettyFormatNormalFunctionExpression :: SQLFunction -> [Expression] -> String
+prettyFormatNormalFunctionExpression sqlFunc funcArgs =
+    let argString = intercalate " " (map toArgString funcArgs)
+    in functionName sqlFunc ++ argString
 
 data SQLFunction = SQLFunction {
     functionName :: String,
@@ -207,7 +254,7 @@ parseColumnSelections =
     sepBy1 parseAnyColType (try parseCommaSeparator)
     where parseAnyColType = parseAllCols <|>
                             (try parseAllColsFromTbl) <|>
-                            (try parseSpecificCol)
+                            (try parseColExpression)
 
 parseAllCols = string "*" >> return AllColumns
 
@@ -217,8 +264,7 @@ parseAllColsFromTbl = do
     
     return $ AllColumnsFrom tableVal
 
-parseSpecificCol =
-    parseColumnId >>= (\colId -> return $ QualifiedColumn colId)
+parseColExpression = parseExpression >>= \expr -> return $ ExpressionColumn expr
 
 parseColumnId = do
     firstId <- parseIdentifier
@@ -341,6 +387,22 @@ parseInt = do
             char '-'
             unsignedDigitTxt <- unsignedParseTxt
             return ('-':unsignedDigitTxt)
+
+-- | returns an int if it can be read from the string
+maybeReadInt :: String -> Maybe Int
+maybeReadInt intStr =
+    case parse (parseToEof parseInt) "" intStr of
+        Left _      -> Nothing
+        Right int   -> Just int
+
+-- | returns a real if it can be read from the string
+maybeReadReal :: String -> Maybe Double
+maybeReadReal realStr =
+    case parse (parseToEof parseReal) "" realStr of
+        Left _      -> Nothing
+        Right real  -> Just real
+
+parseToEof p = p >>= \x -> (eof >> return x)
 
 parseRealConstant :: GenParser Char st Expression
 parseRealConstant =
@@ -493,7 +555,7 @@ specialFunctions = [substringFromFunction,
 
 -- | SUBSTRING(extraction_string FROM starting_position [FOR length]
 --             [COLLATE collation_name])
---   We don't yet support the COLLATE part
+--   TODO implement these
 substringFromFunction = SQLFunction {
     functionName    = "SUBSTRING",
     minArgCount     = 2,

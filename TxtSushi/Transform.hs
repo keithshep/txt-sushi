@@ -26,8 +26,7 @@ selectColumns columnIndices (headRow:tableTail) =
 removeColumns _ [] = []
 removeColumns columnIndices (headRow:tableTail) =
     let indexesToSelect = [0 .. ((length headRow) - 1)] \\ columnIndices
-    in
-        ([headRow !! i | i <- indexesToSelect]):(removeColumns columnIndices tableTail)
+    in ([headRow !! i | i <- indexesToSelect]):(removeColumns columnIndices tableTail)
 
 -- | sort the given 'table' on the given columns
 sortColumns columns table =
@@ -55,8 +54,7 @@ mergePairsBy _ [] = []
 mergePairsBy comparisonFunction singletonListList@(headList:[]) = singletonListList
 mergePairsBy comparisonFunction (list1:list2:listListTail) =
     let mergedPair = mergeBy comparisonFunction list1 list2
-    in
-        mergedPair:(mergePairsBy comparisonFunction listListTail)
+    in mergedPair:(mergePairsBy comparisonFunction listListTail)
 
 -- | merge a list of sorted lists into a single sorted list
 mergeAllBy _ [] = []
@@ -103,7 +101,7 @@ bufferToTempFile table = do
     return tempFilePath
 
 -- | join together two tables on the given column index pairs
-joinTables :: [(Int, Int)] -> [[String]] -> [[String]] -> [[String]]
+joinTables :: (Ord o) => [(Int, Int)] -> [[o]] -> [[o]] -> [[o]]
 joinTables joinColumnZipList table1 table2 =
     let
         (joinColumns1, joinColumns2) = unzip joinColumnZipList
@@ -113,9 +111,10 @@ joinTables joinColumnZipList table1 table2 =
         joinPresortedTables joinColumnZipList sortedTable1 sortedTable2
 
 -- | join together two tables that are presorted on the given column index pairs
-joinPresortedTables :: [(Int, Int)] -> [[String]] -> [[String]] -> [[String]]
+joinPresortedTables :: (Ord o) => [(Int, Int)] -> [[o]] -> [[o]] -> [[o]]
 joinPresortedTables joinColumnZipList sortedTable1 sortedTable2 =
-    let (joinColumns1, joinColumns2) = unzip joinColumnZipList
+    let
+        (joinColumns1, joinColumns2) = unzip joinColumnZipList
         rowEq1 = (\a b -> (rowComparison joinColumns1 a b) == EQ)
         rowEq2 = (\a b -> (rowComparison joinColumns2 a b) == EQ)
         tableGroups1 = groupBy rowEq1 sortedTable1
@@ -126,7 +125,8 @@ joinPresortedTables joinColumnZipList sortedTable1 sortedTable2 =
 permutePrependRows [] _ = []
 permutePrependRows _ [] = []
 permutePrependRows (table1HeadRow:table1Tail) table2 =
-    let prependHead = (table1HeadRow ++)
+    let
+        prependHead = (table1HeadRow ++)
         newTable2 = map prependHead table2
     in
         newTable2 ++ (permutePrependRows table1Tail table2)
@@ -134,7 +134,8 @@ permutePrependRows (table1HeadRow:table1Tail) table2 =
 joinGroupedTables _ [] _  = []
 joinGroupedTables _ _  [] = []
 joinGroupedTables joinColumnZipList tableGroups1@(headTableGroup1:tableGroupsTail1) tableGroups2@(headTableGroup2:tableGroupsTail2) =
-    let headRow1 = head headTableGroup1
+    let
+        headRow1 = head headTableGroup1
         headRow2 = head headTableGroup2
     in
         case asymmetricRowComparison joinColumnZipList headRow1 headRow2 of
@@ -151,7 +152,8 @@ joinGroupedTables joinColumnZipList tableGroups1@(headTableGroup1:tableGroupsTai
 
 asymmetricRowComparison [] _ _ = EQ
 asymmetricRowComparison (columnsZipHead:columnsZipTail) row1 row2 =
-    let (columnHead1, columnHead2) = columnsZipHead
+    let
+        (columnHead1, columnHead2) = columnsZipHead
         colComparison = (row1 !! columnHead1) `compare` (row2 !! columnHead2)
     in
         case colComparison of

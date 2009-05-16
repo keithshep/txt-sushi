@@ -22,6 +22,7 @@ import qualified Data.Map as Map
 
 import TxtSushi.SQLParser
 import TxtSushi.Transform
+import Util.ListUtil
 
 -- | an SQL table data structure
 --   TODO: need allColumnsColumnIdentifiers and allColumnsTableRows so that
@@ -32,20 +33,114 @@ data DatabaseTable = DatabaseTable {
     columnIdentifiers :: [ColumnIdentifier],
     
     -- | the actual table data
-    tableRows :: [[String]]}
+    tableRows :: [[EvaluatedExpression]]}
 
 emptyTable = DatabaseTable [] []
+
+stringExpression :: String -> EvaluatedExpression
+stringExpression string = EvaluatedExpression {
+    preferredType   = StringType,
+    maybeIntValue   = maybeReadInt string,
+    maybeRealValue  = maybeReadReal string,
+    stringValue     = string,
+    maybeBoolValue  = Just $
+        (map toLower string /= "false") && (string /= "") && (string /= "0")}
+
+intExpression int = EvaluatedExpression {
+    preferredType   = IntType,
+    maybeIntValue   = Just int,
+    maybeRealValue  = Just $ fromIntegral int,
+    stringValue     = show int,
+    maybeBoolValue  = Just $ int /= 0}
+
+realExpression real = EvaluatedExpression {
+    preferredType   = RealType,
+    maybeIntValue   = Just $ floor real,
+    maybeRealValue  = Just real,
+    stringValue     = show real,
+    maybeBoolValue  = Just $ real /= 0.0}
+
+boolExpression bool = EvaluatedExpression {
+    preferredType   = BoolType,
+    maybeIntValue   = Just $ if bool then 1 else 0,
+    maybeRealValue  = Just $ if bool then 1.0 else 0.0,
+    stringValue     = show bool,
+    maybeBoolValue  = Just bool}
+
+intValue :: EvaluatedExpression -> Int
+intValue evalExpr = case maybeIntValue evalExpr of
+    Just int -> int
+    Nothing ->
+        error $ "failed to parse \"" ++ (stringValue evalExpr) ++
+                "\" as an integer value"
+
+realValue :: EvaluatedExpression -> Double
+realValue evalExpr = case maybeRealValue evalExpr of
+    Just real -> real
+    Nothing ->
+        error $ "failed to parse \"" ++ (stringValue evalExpr) ++
+                "\" to a numeric value"
+
+boolValue :: EvaluatedExpression -> Bool
+boolValue evalExpr = case maybeBoolValue evalExpr of
+    Just bool -> bool
+    Nothing ->
+        error $ "failed to parse \"" ++ (stringValue evalExpr) ++
+                "\" to a boolean value"
+
+data ExpressionType = StringType | RealType | IntType | BoolType deriving Eq
+
+data EvaluatedExpression = EvaluatedExpression {
+    preferredType   :: ExpressionType,
+    stringValue     :: String,
+    maybeRealValue  :: Maybe Double,
+    maybeIntValue   :: Maybe Int,
+    maybeBoolValue  :: Maybe Bool}
+
+maybeReadBool :: String -> Maybe Bool
+maybeReadBool boolStr = case map toLower boolStr of
+    "true"      -> Just True
+    "1"         -> Just True
+    "1.0"       -> Just True
+    "false"     -> Just False
+    "0"         -> Just False
+    "0.0"       -> Just False
+    otherwise   -> Nothing
+
+instance Eq EvaluatedExpression where
+    -- base off of the Ord definition
+    expr1 == expr2 = compare expr1 expr2 == EQ
+
+instance Ord EvaluatedExpression where
+    -- compare on string based on preferred type
+    compare (EvaluatedExpression StringType string1 _ _ _) expr2 = compare string1 (stringValue expr2)
+    compare expr1 (EvaluatedExpression StringType string2 _ _ _) = compare (stringValue expr1) string2
+    
+    -- compare on real based on preferred type
+    compare expr1@(EvaluatedExpression RealType _ _ _ _) expr2 = compare (realValue expr1) (realValue expr2)
+    compare expr1 expr2@(EvaluatedExpression RealType _ _ _ _) = compare (realValue expr1) (realValue expr2)
+    
+    -- compare on int based on preferred type
+    compare expr1@(EvaluatedExpression IntType _ _ _ _) expr2 = compare (intValue expr1) (intValue expr2)
+    compare expr1 expr2@(EvaluatedExpression IntType _ _ _ _) = compare (intValue expr1) (intValue expr2)
+    
+    -- compare on bool based on preferred type (we know it's a bool here)
+    compare expr1 expr2 = compare (boolValue expr1) (boolValue expr2)
 
 -- convert a text table to a database table by using the 1st row as column IDs
 textTableToDatabaseTable :: String -> [[String]] -> DatabaseTable
 textTableToDatabaseTable tableName (headerNames:tblRows) =
-    DatabaseTable (map makeColId headerNames) tblRows
+    DatabaseTable (map makeColId headerNames) (map (map stringExpression) tblRows)
     where
         makeColId colName = ColumnIdentifier (Just tableName) colName
 
 databaseTableToTextTable :: DatabaseTable -> [[String]]
 databaseTableToTextTable dbTable =
-    (map columnId (columnIdentifiers dbTable)) : tableRows dbTable
+    let
+        headerRow = (map columnId (columnIdentifiers dbTable))
+        tailRows = map (map stringValue) (tableRows dbTable)
+    in
+        headerRow:tailRows
 
 -- | perform a SQL select with the given select statement on the
 --   given table map
@@ -62,7 +157,7 @@ select selectStatement tableMap =
             Just expr -> filterRowsBy expr fromTbl
         orderedTbl = orderRowsBy (orderByItems selectStatement) filteredTbl
         selectedTbl =
-            selectTableColumns (columnSelections selectStatement) orderedTbl
+            evaluateColumnSelections (columnSelections selectStatement) orderedTbl
     in
         selectedTbl
 
@@ -77,7 +172,7 @@ orderRowsBy orderBys dbTable =
         dbTable {tableRows = sortBy compareFunc (tableRows dbTable)}
 
 -- | Compares two rows using the given OrderByItem and column ID's
-compareRowsOnOrderItems :: [OrderByItem] -> [ColumnIdentifier] -> [String] -> [String] -> Ordering
+compareRowsOnOrderItems :: [OrderByItem] -> [ColumnIdentifier] -> [EvaluatedExpression] -> [EvaluatedExpression] -> Ordering
 compareRowsOnOrderItems orderBys colIds row1 row2 =
     cascadingOrder $ toOrderList orderBys
     where
@@ -86,7 +181,7 @@ compareRowsOnOrderItems orderBys colIds row1 row2 =
             (compareRowsOnOrderItem orderBy colIds row1 row2):(toOrderList orderByTail)
 
 -- | Compares two rows using the given OrderByItem and column ID's
-compareRowsOnOrderItem :: OrderByItem -> [ColumnIdentifier] -> [String] -> [String] -> Ordering
+compareRowsOnOrderItem :: OrderByItem -> [ColumnIdentifier] -> [EvaluatedExpression] -> [EvaluatedExpression] -> Ordering
 compareRowsOnOrderItem orderBy colIds row1 row2 =
     let
         orderExpr = orderExpression orderBy
@@ -104,15 +199,6 @@ reverseOrdering :: Ordering -> Ordering
 reverseOrdering EQ = EQ
 reverseOrdering LT = GT
 reverseOrdering GT = LT
-
--- | applies a cascading order logic where 1st non-equal ordering defines
---   the ordering for the list. If they're all equal (or the list is empty)
---   then return EQ
-cascadingOrder :: [Ordering] -> Ordering
-cascadingOrder [] = EQ
-cascadingOrder (LT:_) = LT
-cascadingOrder (GT:_) = GT
-cascadingOrder (EQ:tailOrders) = cascadingOrder tailOrders
 
 -- | Evaluate the FROM table part, and returns the FROM table. Also returns
 --   a mapping of new table names from aliases etc.
@@ -149,8 +235,8 @@ evalTableExpression tblExpr tableMap =
 
 extractJoinCols (FunctionExpression sqlFunc [arg1, arg2]) =
     case sqlFunc of
-        SQLFunction "AND" _ _ -> extractJoinCols arg1 ++ extractJoinCols arg2
-        SQLFunction "=" _ _ -> extractJoinColPair arg1 arg2
+        SQLFunction "AND" _ _   -> extractJoinCols arg1 ++ extractJoinCols arg2
+        SQLFunction "=" _ _     -> extractJoinColPair arg1 arg2
         
         -- Only expecting "AND" or "="
         otherwise -> onPartFormattingError
@@ -204,32 +290,42 @@ maybeIdPairToIndexPair leftColIds rightColIds (leftColId, rightColId) = do
     rightIndex <- findIndex (== rightColId) rightColIds
     return (leftIndex, rightIndex)
 
--- | select the given columns from the given table
-selectTableColumns :: [ColumnSelection] -> DatabaseTable -> DatabaseTable
-selectTableColumns columns table =
+evaluateColumnSelections :: [ColumnSelection] -> DatabaseTable -> DatabaseTable
+evaluateColumnSelections colSelections dbTable =
     let
-        tableColIds = columnIdentifiers table
-        indices = concat $ map (columnSelectionIndices tableColIds) columns
-        currColIds = columnIdentifiers table
-        currTblRows = tableRows table
+        selectionTbls = map ($ dbTable) (map evaluateColumnSelection colSelections)
     in
-        table {
-            columnIdentifiers = [currColIds !! i | i <- indices],
-            tableRows = selectColumns indices currTblRows}
+        foldl1' tableConcat selectionTbls
 
--- | get the indices of the given column selection
---   TODO we need to account for arbitrary expression cols too!!
-columnSelectionIndices :: [ColumnIdentifier] -> ColumnSelection -> [Int]
-columnSelectionIndices colIds AllColumns =
-    [0 .. length colIds - 1]
+tableConcat :: DatabaseTable -> DatabaseTable -> DatabaseTable
+tableConcat dbTable1 dbTable2 =
+    let
+        concatIds = (columnIdentifiers dbTable1) ++ (columnIdentifiers dbTable2)
+        concatRows = zipWith (++) (tableRows dbTable1) (tableRows dbTable2)
+    in
+        DatabaseTable concatIds concatRows
 
-columnSelectionIndices colIds (AllColumnsFrom srcTblName) =
-    findIndices matchesSrcTblName (map maybeTableName colIds)
-    where matchesSrcTblName Nothing         = False
-          matchesSrcTblName (Just tblName)  = tblName == srcTblName
-
-columnSelectionIndices colIds (QualifiedColumn colId) =
-    findIndices (columnMatches colId) colIds
+evaluateColumnSelection :: ColumnSelection -> DatabaseTable -> DatabaseTable
+evaluateColumnSelection AllColumns dbTable = dbTable
+evaluateColumnSelection (AllColumnsFrom srcTblName) dbTable =
+    let
+        colIds = columnIdentifiers dbTable
+        indices = findIndices matchesSrcTblName (map maybeTableName colIds)
+        selectedColIds = selectIndices indices colIds
+        selectedColRows = map (selectIndices indices) (tableRows dbTable)
+    in
+        DatabaseTable selectedColIds selectedColRows
+    where
+        matchesSrcTblName Nothing           = False
+        matchesSrcTblName (Just tblName)    = tblName == srcTblName
+        selectIndices indices xs = [xs !! i | i <- indices]
+evaluateColumnSelection (ExpressionColumn expr) dbTable =
+    let
+        tblColIds = columnIdentifiers dbTable
+        exprColId = expressionIdentifier expr
+        evaluatedExprs = map (evalExpression expr tblColIds) (tableRows dbTable)
+    in
+        DatabaseTable [exprColId] (transpose [evaluatedExprs])
 
 -- | This is a little different that a strict equals compare in that it returns
 --   true if the query column has a Nothing table and the column name part
@@ -245,10 +341,6 @@ columnMatches queryColumn referenceColumn =
     -- table name is important here so match on the whole object
     queryColumn == referenceColumn
 
---------------------------------------------------------------------------------
--- Expression Evaluation
---------------------------------------------------------------------------------
-
 -- | filters the database's table rows on the given expression
 filterRowsBy :: Expression -> DatabaseTable -> DatabaseTable
 filterRowsBy filterExpr table =
@@ -256,7 +348,7 @@ filterRowsBy filterExpr table =
     where myBoolEvalExpr row =
             boolValue $ evalExpression filterExpr (columnIdentifiers table) row
 
-evalExpression :: Expression -> [ColumnIdentifier] -> [String] -> EvaluatedExpression
+evalExpression :: Expression -> [ColumnIdentifier] -> [EvaluatedExpression] -> EvaluatedExpression
 -- Here's the easy stuff. evaluate constants
 evalExpression (StringConstantExpression string) _ _ = stringExpression string
 evalExpression (IntegerConstantExpression int) _ _ = intExpression int
@@ -265,7 +357,7 @@ evalExpression (RealConstantExpression real) _ _ = realExpression real
 -- A little bit harder. evaluate a column expression
 evalExpression (ColumnExpression col) columnIds tblRow =
     case findIndex (columnMatches col) columnIds of
-        Just colIndex -> stringExpression $ tblRow !! colIndex
+        Just colIndex -> tblRow !! colIndex
         Nothing -> error $ "Failed to find column named: " ++ (prettyFormatColumn col)
 
 -- this is where the action is. evaluate a function
@@ -273,7 +365,7 @@ evalExpression (FunctionExpression sqlFun funArgs) columnIds tblRow
     -- String functions
     | sqlFun == upperFunction = stringExpression $ map toUpper (stringValue (head evaluatedArgs))
     | sqlFun == lowerFunction = stringExpression $ map toLower (stringValue (head evaluatedArgs))
-    | sqlFun == trimFunction = stringExpression $ trimSpace (stringValue (head evaluatedArgs)) -- TODO SQL trim takes params
+    | sqlFun == trimFunction = stringExpression $ trimSpace (stringValue (head evaluatedArgs))
     
     -- algebraic infix functions
     | sqlFun == multiplyFunction = algebraWithCoercion (*) (*) evaluatedArgs
@@ -305,65 +397,6 @@ evalExpression (FunctionExpression sqlFun funArgs) columnIds tblRow
         useRealAlgebra expr =
             let prefType = preferredType expr
             in prefType == StringType || prefType == RealType
-
-stringExpression :: String -> EvaluatedExpression
-stringExpression string = EvaluatedExpression {
-    preferredType   = StringType,
-    intValue        = read string,
-    realValue       = read string,
-    stringValue     = string,
-    boolValue       =
-        (map toLower string /= "false") && (string /= "") && (string /= "0")}
-
-intExpression int = EvaluatedExpression {
-    preferredType   = IntType,
-    intValue        = int,
-    realValue       = fromIntegral int,
-    stringValue     = show int,
-    boolValue       = int /= 0}
-
-realExpression real = EvaluatedExpression {
-    preferredType   = RealType,
-    intValue        = floor real,
-    realValue       = real,
-    stringValue     = show real,
-    boolValue       = real /= 0.0}
-
-boolExpression bool = EvaluatedExpression {
-    preferredType   = BoolType,
-    intValue        = if bool then 1 else 0,
-    realValue       = if bool then 1.0 else 0.0,
-    stringValue     = show bool,
-    boolValue       = bool}
-
-data ExpressionType = StringType | RealType | IntType | BoolType deriving Eq
-
-data EvaluatedExpression = EvaluatedExpression {
-    preferredType   :: ExpressionType,
-    stringValue     :: String,
-    realValue       :: Double,
-    intValue        :: Int,
-    boolValue       :: Bool}
-
-instance Eq EvaluatedExpression where
-    -- base off of the Ord definition
-    expr1 == expr2 = compare expr1 expr2 == EQ
-
-instance Ord EvaluatedExpression where
-    -- compare on string based on preferred type
-    compare (EvaluatedExpression StringType string1 _ _ _) expr2 = compare string1 (stringValue expr2)
-    compare expr1 (EvaluatedExpression StringType string2 _ _ _) = compare (stringValue expr1) string2
-    
-    -- compare on real based on preferred type
-    compare (EvaluatedExpression RealType _ real1 _ _) expr2 = compare real1 (realValue expr2)
-    compare expr1 (EvaluatedExpression RealType _ real2 _ _) = compare (realValue expr1) real2
-    
-    -- compare on int based on preferred type
-    compare (EvaluatedExpression IntType _ _ int1 _) expr2 = compare int1 (intValue expr2)
-    compare expr1 (EvaluatedExpression IntType _ _ int2 _) = compare (intValue expr1) int2
-    
-    -- compare on bool based on preferred type (we know it's a bool here)
-    compare expr1 expr2 = compare (boolValue expr1) (boolValue expr2)
 
 -- | trims leading and trailing spaces
 trimSpace :: String -> String
