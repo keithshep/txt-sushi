@@ -112,20 +112,20 @@ instance Eq EvaluatedExpression where
     expr1 == expr2 = compare expr1 expr2 == EQ
 
 instance Ord EvaluatedExpression where
-    -- compare on string based on preferred type
-    compare (EvaluatedExpression StringType string1 _ _ _) expr2 = compare string1 (stringValue expr2)
-    compare expr1 (EvaluatedExpression StringType string2 _ _ _) = compare (stringValue expr1) string2
-    
-    -- compare on real based on preferred type
-    compare expr1@(EvaluatedExpression RealType _ _ _ _) expr2 = compare (realValue expr1) (realValue expr2)
-    compare expr1 expr2@(EvaluatedExpression RealType _ _ _ _) = compare (realValue expr1) (realValue expr2)
+    -- compare on bool based on preferred type
+    compare (EvaluatedExpression BoolType _ _ _ (Just b1)) (EvaluatedExpression _ _ _ _ (Just b2)) = compare b1 b2
+    compare (EvaluatedExpression _ _ _ _ (Just b1)) (EvaluatedExpression BoolType _ _ _ (Just b2)) = compare b1 b2
     
     -- compare on int based on preferred type
-    compare expr1@(EvaluatedExpression IntType _ _ _ _) expr2 = compare (intValue expr1) (intValue expr2)
-    compare expr1 expr2@(EvaluatedExpression IntType _ _ _ _) = compare (intValue expr1) (intValue expr2)
+    compare (EvaluatedExpression IntType _ _ (Just i1) _) (EvaluatedExpression _ _ _ (Just i2) _) = compare i1 i2
+    compare (EvaluatedExpression _ _ _ (Just i1) _) (EvaluatedExpression IntType _ _ (Just i2) _) = compare i1 i2
+
+    -- compare on real based on preferred type
+    compare (EvaluatedExpression RealType _ (Just r1) _ _) (EvaluatedExpression _ _ (Just r2) _ _) = compare r1 r2
+    compare (EvaluatedExpression _ _ (Just r1) _ _) (EvaluatedExpression RealType _ (Just r2) _ _) = compare r1 r2
     
-    -- compare on bool based on preferred type (we know it's a bool here)
-    compare expr1 expr2 = compare (boolValue expr1) (boolValue expr2)
+    -- fall back on string type
+    compare expr1 expr2 = compare (stringValue expr1) (stringValue expr2)
 
 -- convert a text table to a database table by using the 1st row as column IDs
 textTableToDatabaseTable :: String -> [[String]] -> DatabaseTable
