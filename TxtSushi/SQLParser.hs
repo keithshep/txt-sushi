@@ -399,7 +399,7 @@ maybeReadInt intStr =
 maybeReadReal :: String -> Maybe Double
 maybeReadReal realStr =
     case parse (parseToEof parseReal) "" realStr of
-        Left _      -> Nothing
+        Left _      -> maybeReadInt realStr >>= (\int -> Just $ fromIntegral int)
         Right real  -> Just real
 
 parseToEof p = p >>= \x -> (eof >> return x)
