@@ -10,4 +10,4 @@
 # RAIN_I * 0.3937
 # FROM STATS;
 
-../dist/build/tssql/tssql 'SELECT ID, MONTH, (TEMP_F - 32) * 5 /9, RAIN_I * 0.3937 FROM STATS' > metric_stats.csv
+../dist/build/tssql/tssql -table STATS stats.csv 'SELECT ID, MONTH, (TEMP_F - 32) * 5 /9, RAIN_I * 0.3937 FROM STATS' > metric_stats.csv
