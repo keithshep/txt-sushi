@@ -6,4 +6,6 @@
 # SELECT * FROM STATION
 # WHERE LAT_N > 39.7
 
-../dist/build/tssql/tssql -table STATION station.csv 'SELECT * FROM STATION WHERE LAT_N > 39.7' | ../dist/build/csvtopretty/csvtopretty -
+../dist/build/tssql/tssql -table STATION station.csv \
+'SELECT * FROM STATION WHERE LAT_N > 39.7' \
+| ../dist/build/csvtopretty/csvtopretty -

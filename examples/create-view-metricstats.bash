@@ -10,4 +10,8 @@
 # RAIN_I * 0.3937
 # FROM STATS;
 
-../dist/build/tssql/tssql -table STATS stats.csv 'SELECT ID, MONTH, (TEMP_F - 32) * 5 /9, RAIN_I * 0.3937 FROM STATS' > metric_stats.csv
+# After redirecting to metric_stats.csv we can simply use that as a table.
+# So, that's as close as TxtSushi gets to creating a view :-)
+../dist/build/tssql/tssql -table STATS stats.csv \
+'SELECT ID, MONTH, (TEMP_F - 32) * 5 /9, RAIN_I * 0.3937 FROM STATS' \
+> metric_stats.csv
