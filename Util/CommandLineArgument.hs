@@ -106,9 +106,18 @@ extractCommandLineArguments ::
 extractCommandLineArguments cmdLineDesc argValues =
     let unreservedArgCount = (length argValues) - (minTailArgumentCount cmdLineDesc)
         (unreservedArgs, reservedArgs) = splitAt unreservedArgCount argValues
-        (optionMap, remainingArgs) = extractOptions (options cmdLineDesc) unreservedArgs
+        theOptions = options cmdLineDesc
+        (optionMap, remainingArgs) = extractOptions theOptions unreservedArgs
+        anyOptionsInReservedArgs =
+            let (hopefullyEmptyMap, _) = extractOptions theOptions reservedArgs
+            in not $ Map.null hopefullyEmptyMap
     in
-        (optionMap, remainingArgs ++ reservedArgs)
+        -- TODO this if else is really lame. we should replace all this
+        --      along w/ error handling with status codes
+        if anyOptionsInReservedArgs then
+            (Map.empty, [])
+        else
+            (optionMap, remainingArgs ++ reservedArgs)
 
 extractOptions ::
     [OptionDescription] ->

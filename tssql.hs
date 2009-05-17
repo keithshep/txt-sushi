@@ -70,45 +70,47 @@ unwrapMapList ((key, value):mapTail) = do
     unwrappedTail <- unwrapMapList mapTail
     return $ (key, unwrappedValue):unwrappedTail
 
+printUsage progName =
+    putStrLn $ "Usage: " ++ progName ++ " " ++ formatCommandLine sqlCmdLine
+
 main = do
     args <- getArgs
     progName <- getProgName
     
-    let (argMap, [selectStmtTxt]) = extractCommandLineArguments sqlCmdLine args
-        parseOutcome = parse parseSelectStatement "" selectStmtTxt
+    let (argMap, argTail) = extractCommandLineArguments sqlCmdLine args
+        showHelp = Map.member helpOption argMap || length argTail /= 1
+        parseOutcome = parse parseSelectStatement "" (head argTail)
     
-    case parseOutcome of
-        Left  err        -> print err
-        Right selectStmt ->
-            let
-                -- create a table file map from the user args
-                tableArgs = Map.findWithDefault [] tableDefOption argMap
-                tableArgMap = tableArgsToMap tableArgs
-                
-                -- get a default table to file map from the select statement
-                selectTblNames = allMaybeTableNames (maybeFromTable selectStmt)
-                defaultTblMap = Map.fromList (zip selectTblNames selectTblNames)
-                
-                -- join the two with arg values taking precidence over
-                -- the default values
-                finalTblFileMap = tableArgMap `Map.union` defaultTblMap
-            in
-                -- turn the files into strings
-                if validateTableNames (Map.keys tableArgMap) selectTblNames
-                    then do
-                        let contentsMap = Map.map getContentsFromFileOrStdin finalTblFileMap
-                        
-                        unwrappedContents <- unwrapMapList $ Map.toList contentsMap
-                        
-                        let unwrappedContentsMap = Map.fromList unwrappedContents
-                            textTableMap = Map.map (parseTable csvFormat) unwrappedContentsMap
-                            dbTableMap = Map.mapWithKey textTableToDatabaseTable textTableMap
-                            selectedDbTable = select selectStmt dbTableMap
-                            selectedTxtTable = databaseTableToTextTable selectedDbTable
-                        
-                        putStr $ formatTable csvFormat selectedTxtTable
-                    else
-                        exitFailure
-                --tableFileMap <- createSqlTables (findWithDefault [] tableDefOption argMap)
-                --tableContentsMap <- parseAllTables csvFormat
-
+    if showHelp then printUsage progName else
+        case parseOutcome of
+            Left  err        -> print err
+            Right selectStmt ->
+                let
+                    -- create a table file map from the user args
+                    tableArgs = Map.findWithDefault [] tableDefOption argMap
+                    tableArgMap = tableArgsToMap tableArgs
+                    
+                    -- get a default table to file map from the select statement
+                    selectTblNames = allMaybeTableNames (maybeFromTable selectStmt)
+                    defaultTblMap = Map.fromList (zip selectTblNames selectTblNames)
+                    
+                    -- join the two with arg values taking precidence over
+                    -- the default values
+                    finalTblFileMap = tableArgMap `Map.union` defaultTblMap
+                in
+                    -- turn the files into strings
+                    if validateTableNames (Map.keys tableArgMap) selectTblNames
+                        then do
+                            let contentsMap = Map.map getContentsFromFileOrStdin finalTblFileMap
+                            
+                            unwrappedContents <- unwrapMapList $ Map.toList contentsMap
+                            
+                            let unwrappedContentsMap = Map.fromList unwrappedContents
+                                textTableMap = Map.map (parseTable csvFormat) unwrappedContentsMap
+                                dbTableMap = Map.mapWithKey textTableToDatabaseTable textTableMap
+                                selectedDbTable = select selectStmt dbTableMap
+                                selectedTxtTable = databaseTableToTextTable selectedDbTable
+                            
+                            putStr $ formatTable csvFormat selectedTxtTable
+                        else
+                            exitFailure
