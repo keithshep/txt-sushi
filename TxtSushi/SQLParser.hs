@@ -165,8 +165,8 @@ prettyFormatInfixFunctionExpression sqlFunc funcArgs =
 
 prettyFormatNormalFunctionExpression :: SQLFunction -> [Expression] -> String
 prettyFormatNormalFunctionExpression sqlFunc funcArgs =
-    let argString = intercalate " " (map toArgString funcArgs)
-    in functionName sqlFunc ++ argString
+    let argString = intercalate ", " (map toArgString funcArgs)
+    in functionName sqlFunc ++ "(" ++ argString ++ ")"
 
 data SQLFunction = SQLFunction {
     functionName :: String,
