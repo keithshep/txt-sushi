@@ -28,9 +28,9 @@ main = do
             contents2 <- hGetContents handle2
             
             let table1 = parseTable csvFormat contents1
-                columnWidths = map succ (maxTableColumnWidths table1)
+                columnWidths = maxTableColumnWidths table1
                 table2 = parseTable csvFormat contents2
-                prettyTableText = formatTableWithWidths columnWidths table2
+                prettyTableText = formatTableWithWidths "|" columnWidths table2
             
             putStr prettyTableText
             hClose handle1

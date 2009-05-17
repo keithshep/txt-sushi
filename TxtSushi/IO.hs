@@ -33,19 +33,21 @@ get a quote escape sequence for the given 'Format'
 doubleQuote :: Format -> String
 doubleQuote format = (quote format) ++ (quote format)
 
---formatTableWithWidths widths table =
---    intercalate "\n" (formatTableRowsWithWidths widths table)
-
-formatTableWithWidths _ [] = []
-formatTableWithWidths widths (row:tableTail) =
-    (concat (zipWith ensureWidth widths row)) ++ "\n" ++ (formatTableWithWidths widths tableTail)
-    where ensureWidth width field =
+formatTableWithWidths _ _ [] = []
+formatTableWithWidths boundaryString widths (row:tableTail) =
+    let
+        (initCells, [lastCell]) = splitAt (length row - 1) row
+    in
+        (concat $ zipWith ensureWidth widths initCells) ++ lastCell ++
+        "\n" ++ (formatTableWithWidths boundaryString widths tableTail)
+    where
+        ensureWidth width field =
             let lengthField = length field
             in
                 if width > lengthField then
-                    field ++ (replicate (width - lengthField) ' ')
+                    field ++ (replicate (width - lengthField) ' ') ++ boundaryString
                 else
-                    field
+                    field ++ boundaryString
 
 {- |
 for a table, calculate the max width in characters for each column
