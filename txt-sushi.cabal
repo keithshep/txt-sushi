@@ -1,10 +1,19 @@
 Name:                txt-sushi
 Version:             0.1
-Description:         A toolkit for slicing and dicing flat-files including an SQL interface
+Synopsis:            A collection of command line utilities for processing text tables
+Description:
+    TxtSushi is a collection of command line utilities for processing
+    comma-separated and tab-delimited files (AKA flat files, spreadsheets).
+    By focusing exclusively on processing text files with a tabular structure,
+    TxtSushi simplifies common tasks like filtering, joining and transformation
+    that would take some effort to accomplish with a more powerful scripting
+    language. TxtSushi's homepage is <http://keithsheppard.name/txt-sushi>.
 License:             GPL
+License-File:        COPYING
 Author:              Keith Sheppard
 Maintainer:          keithshep@gmail.com
 Build-Type:          Simple
+Category:            Utils, Text, Database
 Cabal-Version:       >=1.2
 
 Executable tssql
