@@ -62,8 +62,8 @@ realExpression real = EvaluatedExpression {
 
 boolExpression bool = EvaluatedExpression {
     preferredType   = BoolType,
-    maybeIntValue   = Just $ if bool then 1 else 0,
-    maybeRealValue  = Just $ if bool then 1.0 else 0.0,
+    maybeIntValue   = Nothing,
+    maybeRealValue  = Nothing,
     stringValue     = show bool,
     maybeBoolValue  = Just bool}
 
@@ -71,21 +71,21 @@ intValue :: EvaluatedExpression -> Int
 intValue evalExpr = case maybeIntValue evalExpr of
     Just int -> int
     Nothing ->
-        error $ "failed to parse \"" ++ (stringValue evalExpr) ++
-                "\" as an integer value"
+        error $ "could not convert \"" ++ (stringValue evalExpr) ++
+                "\" to an integer value"
 
 realValue :: EvaluatedExpression -> Double
 realValue evalExpr = case maybeRealValue evalExpr of
     Just real -> real
     Nothing ->
-        error $ "failed to parse \"" ++ (stringValue evalExpr) ++
+        error $ "could not convert \"" ++ (stringValue evalExpr) ++
                 "\" to a numeric value"
 
 boolValue :: EvaluatedExpression -> Bool
 boolValue evalExpr = case maybeBoolValue evalExpr of
     Just bool -> bool
     Nothing ->
-        error $ "failed to parse \"" ++ (stringValue evalExpr) ++
+        error $ "could not convert \"" ++ (stringValue evalExpr) ++
                 "\" to a boolean value"
 
 data ExpressionType = StringType | RealType | IntType | BoolType deriving Eq
@@ -112,20 +112,29 @@ instance Eq EvaluatedExpression where
     expr1 == expr2 = compare expr1 expr2 == EQ
 
 instance Ord EvaluatedExpression where
-    -- compare on bool based on preferred type
-    compare (EvaluatedExpression BoolType _ _ _ (Just b1)) (EvaluatedExpression _ _ _ _ (Just b2)) = compare b1 b2
-    compare (EvaluatedExpression _ _ _ _ (Just b1)) (EvaluatedExpression BoolType _ _ _ (Just b2)) = compare b1 b2
-    
-    -- compare on int based on preferred type
-    compare (EvaluatedExpression IntType _ _ (Just i1) _) (EvaluatedExpression _ _ _ (Just i2) _) = compare i1 i2
-    compare (EvaluatedExpression _ _ _ (Just i1) _) (EvaluatedExpression IntType _ _ (Just i2) _) = compare i1 i2
+    compare expr1 expr2
+        | type1 == RealType || type2 == RealType    = realCompare expr1 expr2
+        | type1 == IntType || type2 == IntType      = intCompare expr1 expr2
+        | type1 == BoolType || type2 == BoolType    = boolCompare expr1 expr2
+        | otherwise                                 = stringCompare expr1 expr2
+        
+        where
+            type1 = preferredType expr1
+            type2 = preferredType expr2
 
-    -- compare on real based on preferred type
-    compare (EvaluatedExpression RealType _ (Just r1) _ _) (EvaluatedExpression _ _ (Just r2) _ _) = compare r1 r2
-    compare (EvaluatedExpression _ _ (Just r1) _ _) (EvaluatedExpression RealType _ (Just r2) _ _) = compare r1 r2
-    
-    -- fall back on string type
-    compare expr1 expr2 = compare (stringValue expr1) (stringValue expr2)
+realCompare (EvaluatedExpression _ _ (Just r1) _ _) (EvaluatedExpression _ _ (Just r2) _ _) =
+    compare r1 r2
+realCompare expr1 expr2 = stringCompare expr1 expr2
+
+intCompare (EvaluatedExpression _ _ _ (Just i1) _) (EvaluatedExpression _ _ _ (Just i2) _) =
+    compare i1 i2
+intCompare expr1 expr2 = realCompare expr1 expr2
+
+boolCompare (EvaluatedExpression _ _ _ _ (Just b1)) (EvaluatedExpression _ _ _ _ (Just b2)) =
+    compare b1 b2
+boolCompare expr1 expr2 = stringCompare expr1 expr2
+
+stringCompare expr1 expr2 = stringValue expr1 `compare` stringValue expr2
 
 -- convert a text table to a database table by using the 1st row as column IDs
 textTableToDatabaseTable :: String -> [[String]] -> DatabaseTable
@@ -366,14 +375,27 @@ evalExpression (FunctionExpression sqlFun funArgs) columnIds tblRow
     | sqlFun == upperFunction = stringExpression $ map toUpper (stringValue (head evaluatedArgs))
     | sqlFun == lowerFunction = stringExpression $ map toLower (stringValue (head evaluatedArgs))
     | sqlFun == trimFunction = stringExpression $ trimSpace (stringValue (head evaluatedArgs))
+    | sqlFun == concatenateFunction = stringExpression $ concat (map stringValue evaluatedArgs)
     
-    -- algebraic infix functions
+    -- negate
+    | sqlFun == negateFunction =
+        if length evaluatedArgs /= 1 then
+            error "internal error: found a negate function with multiple args"
+        else
+            let evaldArg = head evaluatedArgs
+            in
+                if useRealAlgebra evaldArg then
+                    realExpression $ negate (realValue evaldArg)
+                else
+                    intExpression $ negate (intValue evaldArg)
+    
+    -- algebraic infix
     | sqlFun == multiplyFunction = algebraWithCoercion (*) (*) evaluatedArgs
     | sqlFun == divideFunction = realExpression $ foldl1' (/) (map realValue evaluatedArgs)
     | sqlFun == plusFunction = algebraWithCoercion (+) (+) evaluatedArgs
     | sqlFun == minusFunction = algebraWithCoercion (-) (-) evaluatedArgs
     
-    -- boolean infix functions
+    -- boolean infix
     | sqlFun == isFunction = boolExpression (arg1 == arg2)
     | sqlFun == isNotFunction = boolExpression (arg1 /= arg2)
     | sqlFun == lessThanFunction = boolExpression (arg1 < arg2)
@@ -395,8 +417,11 @@ evalExpression (FunctionExpression sqlFun funArgs) columnIds tblRow
                 intExpression $ foldl1' intFunc (map intValue args)
         
         useRealAlgebra expr =
-            let prefType = preferredType expr
-            in prefType == StringType || prefType == RealType
+            let
+                prefType = preferredType expr
+                maybeInt = maybeIntValue expr
+            in
+                prefType == RealType || maybeInt == Nothing
 
 -- | trims leading and trailing spaces
 trimSpace :: String -> String

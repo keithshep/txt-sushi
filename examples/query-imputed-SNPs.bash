@@ -8,8 +8,8 @@
 
 curl -s http://cgd.jax.org/ImputedSNPData/v1.1/PBupdatedv1.1_HMM_filleddata/PBupdatedv1.1_SNP_genoData_chr4.csv.gz \
 | zcat \
-| tssql -table cgd - \
+| ../dist/build/tssql/tssql -table cgd - \
 'select ChrID, `build 36 bp Position`, Source, `BPH/2J`, `A/J` from cgd
 where Source <> "Perlegen36_b03" and `A/J` = `BPH/2J`
 order by `build 36 bp Position` + 0 desc' \
-| csvtopretty -
+| ../dist/build/csvtopretty/csvtopretty -

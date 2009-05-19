@@ -46,6 +46,12 @@ module TxtSushi.SQLParser (
     andFunction,
     orFunction,
     
+    -- String infix
+    concatenateFunction,
+    
+    -- negate
+    negateFunction,
+    
     -- Etc...
     maybeReadInt,
     maybeReadReal) where
@@ -154,6 +160,7 @@ prettyFormatWithArgs :: SQLFunction -> [Expression] -> String
 prettyFormatWithArgs sqlFunc funcArgs
     | sqlFunc `elem` normalSyntaxFunctions = prettyFormatNormalFunctionExpression sqlFunc funcArgs
     | or (map (sqlFunc `elem`) infixFunctions) = prettyFormatInfixFunctionExpression sqlFunc funcArgs
+    | sqlFunc == negateFunction = "-" ++ toArgString (head funcArgs)
 
 prettyFormatInfixFunctionExpression :: SQLFunction -> [Expression] -> String
 prettyFormatInfixFunctionExpression sqlFunc funcArgs =
@@ -364,9 +371,17 @@ parseAnyNonInfixExpression =
     parenthesize parseExpression <|>
     parseStringConstant <|>
     try parseRealConstant <|>
-    parseIntConstant <|>
+    try parseIntConstant <|>
     parseAnyNormalFunction <|>
+    parseNegateFunction <|>
     (parseColumnId >>= (\colId -> return $ ColumnExpression colId))
+
+parseNegateFunction :: GenParser Char st Expression
+parseNegateFunction = do
+    char '-'
+    notOpChar
+    expr <- parseAnyNonInfixExpression
+    return $ FunctionExpression negateFunction [expr]
 
 parseStringConstant :: GenParser Char st Expression
 parseStringConstant =
@@ -458,6 +473,7 @@ trimFunction = SQLFunction {
 infixFunctions =
     [[multiplyFunction, divideFunction],
      [plusFunction, minusFunction],
+     [concatenateFunction],
      [isFunction, isNotFunction, lessThanFunction, lessThanOrEqualToFunction,
       greaterThanFunction, greaterThanOrEqualToFunction],
      [andFunction, orFunction]]
@@ -482,8 +498,9 @@ parseInfixOp infixFunc =
                 sqlFunction = infixFunc,
                 functionArguments = [leftSubExpr, rightSubExpr]}
         funcIsAlphaNum = any isAlphaNum (functionName infixFunc)
-        notOpChar =
-            notFollowedBy $ oneOf "*/+-=<>^"
+
+notOpChar =
+    notFollowedBy $ oneOf "*/+-=<>^|"
 
 -- Algebraic
 multiplyFunction = SQLFunction {
@@ -547,11 +564,15 @@ orFunction = SQLFunction {
     minArgCount     = 2,
     argCountIsFixed = True}
 
-
+concatenateFunction = SQLFunction {
+    functionName    = "||",
+    minArgCount     = 2,
+    argCountIsFixed = True}
 
 -- Functions with special syntax --
 specialFunctions = [substringFromFunction,
-                    substringFromToFunction]
+                    substringFromToFunction,
+                    negateFunction]
 
 -- | SUBSTRING(extraction_string FROM starting_position [FOR length]
 --             [COLLATE collation_name])
@@ -563,6 +584,11 @@ substringFromFunction = SQLFunction {
 substringFromToFunction = SQLFunction {
     functionName    = "SUBSTRING",
     minArgCount     = 3,
+    argCountIsFixed = True}
+
+negateFunction = SQLFunction {
+    functionName    = "-",
+    minArgCount     = 1,
     argCountIsFixed = True}
 
 --------------------------------------------------------------------------------
