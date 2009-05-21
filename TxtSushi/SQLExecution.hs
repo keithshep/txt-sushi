@@ -19,6 +19,7 @@ module TxtSushi.SQLExecution (
 import Data.Char
 import Data.List
 import qualified Data.Map as Map
+import Text.Regex.Posix
 
 import TxtSushi.SQLParser
 import TxtSushi.Transform
@@ -372,10 +373,15 @@ evalExpression (ColumnExpression col) columnIds tblRow =
 -- this is where the action is. evaluate a function
 evalExpression (FunctionExpression sqlFun funArgs) columnIds tblRow
     -- String functions
-    | sqlFun == upperFunction = stringExpression $ map toUpper (stringValue (head evaluatedArgs))
-    | sqlFun == lowerFunction = stringExpression $ map toLower (stringValue (head evaluatedArgs))
-    | sqlFun == trimFunction = stringExpression $ trimSpace (stringValue (head evaluatedArgs))
+    | sqlFun == upperFunction = stringExpression $ map toUpper (stringValue arg1)
+    | sqlFun == lowerFunction = stringExpression $ map toLower (stringValue arg1)
+    | sqlFun == trimFunction = stringExpression $ trimSpace (stringValue arg1)
     | sqlFun == concatenateFunction = stringExpression $ concat (map stringValue evaluatedArgs)
+    | sqlFun == substringFromToFunction =
+        stringExpression $ take (intValue arg3) (drop (intValue arg2 - 1) (stringValue arg1))
+    | sqlFun == substringFromFunction =
+        stringExpression $ drop (intValue arg2 - 1) (stringValue arg1)
+    | sqlFun == regexMatchFunction = boolExpression $ (stringValue arg1) =~ (stringValue arg2)
     
     -- negate
     | sqlFun == negateFunction =
@@ -389,13 +395,13 @@ evalExpression (FunctionExpression sqlFun funArgs) columnIds tblRow
                 else
                     intExpression $ negate (intValue evaldArg)
     
-    -- algebraic infix
+    -- algebraic
     | sqlFun == multiplyFunction = algebraWithCoercion (*) (*) evaluatedArgs
     | sqlFun == divideFunction = realExpression $ foldl1' (/) (map realValue evaluatedArgs)
     | sqlFun == plusFunction = algebraWithCoercion (+) (+) evaluatedArgs
     | sqlFun == minusFunction = algebraWithCoercion (-) (-) evaluatedArgs
     
-    -- boolean infix
+    -- boolean
     | sqlFun == isFunction = boolExpression (arg1 == arg2)
     | sqlFun == isNotFunction = boolExpression (arg1 /= arg2)
     | sqlFun == lessThanFunction = boolExpression (arg1 < arg2)
@@ -404,10 +410,13 @@ evalExpression (FunctionExpression sqlFun funArgs) columnIds tblRow
     | sqlFun == greaterThanOrEqualToFunction = boolExpression (arg1 >= arg2)
     | sqlFun == andFunction = boolExpression $ (boolValue arg1) && (boolValue arg2)
     | sqlFun == orFunction = boolExpression $ (boolValue arg1) || (boolValue arg2)
+    | sqlFun == notFunction = boolExpression $ not (boolValue arg1)
     
     where
         arg1 = head evaluatedArgs
         arg2 = evaluatedArgs !! 1
+        arg3 = evaluatedArgs !! 2
+        subStringF start extent string = take extent (drop start string)
         evaluatedArgs = map evalArgExpr funArgs
         evalArgExpr expr = evalExpression expr columnIds tblRow
         algebraWithCoercion intFunc realFunc args =

@@ -73,19 +73,6 @@ seqList (head:tail)
 maxRowFieldWidths :: [String] -> [Int] -> [Int]
 maxRowFieldWidths row prevMaxValues =
     zipWithD max (map length row) prevMaxValues
-{-
-    let colLengths = map length row
-        lengthOfRow = length row
-        lengthOfPrevMax = length prevMaxValues
-        maxPrefixList = zipWith max colLengths prevMaxValues
-    in
-        if lengthOfRow == lengthOfPrevMax then
-            maxPrefixList
-        else if lengthOfRow > lengthOfPrevMax then
-            maxPrefixList ++ (drop lengthOfPrevMax colLengths)
-        else
-            maxPrefixList ++ (drop lengthOfRow prevMaxValues)
--}
 
 zipWithD :: (a -> a -> a) -> [a] -> [a] -> [a]
 zipWithD f (x:xt) (y:yt) = (f x y):(zipWithD f xt yt)

@@ -25,18 +25,22 @@ module TxtSushi.SQLParser (
     prettyFormatWithArgs,
     SQLFunction(..),
     
-    -- SQL functions with "normal" syntax
+    -- String SQL function
+    concatenateFunction,
     upperFunction,
     lowerFunction,
     trimFunction,
+    substringFromFunction,
+    substringFromToFunction,
     
-    -- Algebraic infix SQL functions
+    -- Algebraic SQL functions
     multiplyFunction,
     divideFunction,
     plusFunction,
     minusFunction,
+    negateFunction,
     
-    -- Boolean infix SQL functions
+    -- Boolean SQL functions
     isFunction,
     isNotFunction,
     lessThanFunction,
@@ -45,12 +49,8 @@ module TxtSushi.SQLParser (
     greaterThanOrEqualToFunction,
     andFunction,
     orFunction,
-    
-    -- String infix
-    concatenateFunction,
-    
-    -- negate
-    negateFunction,
+    notFunction,
+    regexMatchFunction,
     
     -- Etc...
     maybeReadInt,
@@ -161,6 +161,10 @@ prettyFormatWithArgs sqlFunc funcArgs
     | sqlFunc `elem` normalSyntaxFunctions = prettyFormatNormalFunctionExpression sqlFunc funcArgs
     | or (map (sqlFunc `elem`) infixFunctions) = prettyFormatInfixFunctionExpression sqlFunc funcArgs
     | sqlFunc == negateFunction = "-" ++ toArgString (head funcArgs)
+    | sqlFunc == substringFromToFunction ||
+      sqlFunc == substringFromFunction ||
+      sqlFunc == notFunction =
+        prettyFormatNormalFunctionExpression sqlFunc funcArgs
 
 prettyFormatInfixFunctionExpression :: SQLFunction -> [Expression] -> String
 prettyFormatInfixFunctionExpression sqlFunc funcArgs =
@@ -374,18 +378,14 @@ parseAnyNonInfixExpression =
     try parseIntConstant <|>
     parseAnyNormalFunction <|>
     parseNegateFunction <|>
+    parseSubstringFunction <|>
+    parseNotFunction <|>
     (parseColumnId >>= (\colId -> return $ ColumnExpression colId))
-
-parseNegateFunction :: GenParser Char st Expression
-parseNegateFunction = do
-    char '-'
-    notOpChar
-    expr <- parseAnyNonInfixExpression
-    return $ FunctionExpression negateFunction [expr]
 
 parseStringConstant :: GenParser Char st Expression
 parseStringConstant =
-    quotedText True '"' >>= (\txt -> return $ StringConstantExpression txt)
+    (quotedText True '"' <|> quotedText True '\'') >>=
+    (\txt -> return $ StringConstantExpression txt)
 
 parseIntConstant :: GenParser Char st Expression
 parseIntConstant =
@@ -475,8 +475,9 @@ infixFunctions =
      [plusFunction, minusFunction],
      [concatenateFunction],
      [isFunction, isNotFunction, lessThanFunction, lessThanOrEqualToFunction,
-      greaterThanFunction, greaterThanOrEqualToFunction],
-     [andFunction, orFunction]]
+      greaterThanFunction, greaterThanOrEqualToFunction, regexMatchFunction],
+     [andFunction],
+     [orFunction]]
 
 -- | This function parses the operator part of the infix function and returns
 --   a function that excepts a left expression and right expression to form
@@ -500,7 +501,7 @@ parseInfixOp infixFunc =
         funcIsAlphaNum = any isAlphaNum (functionName infixFunc)
 
 notOpChar =
-    notFollowedBy $ oneOf "*/+-=<>^|"
+    notFollowedBy $ oneOf "*/+-=<>^|~"
 
 -- Algebraic
 multiplyFunction = SQLFunction {
@@ -569,14 +570,20 @@ concatenateFunction = SQLFunction {
     minArgCount     = 2,
     argCountIsFixed = True}
 
+regexMatchFunction = SQLFunction {
+    functionName    = "=~",
+    minArgCount     = 2,
+    argCountIsFixed = True}
+
 -- Functions with special syntax --
 specialFunctions = [substringFromFunction,
                     substringFromToFunction,
-                    negateFunction]
+                    negateFunction,
+                    notFunction]
 
 -- | SUBSTRING(extraction_string FROM starting_position [FOR length]
 --             [COLLATE collation_name])
---   TODO implement these
+--   TODO implement COLLATE part
 substringFromFunction = SQLFunction {
     functionName    = "SUBSTRING",
     minArgCount     = 2,
@@ -586,10 +593,46 @@ substringFromToFunction = SQLFunction {
     minArgCount     = 3,
     argCountIsFixed = True}
 
+parseSubstringFunction :: GenParser Char st Expression
+parseSubstringFunction = do
+    try $ upperOrLower (functionName substringFromFunction) >> spaces >> char '('
+    spaces
+    strExpr <- parseExpression
+    spaces1
+    upperOrLower "FROM"
+    spaces1
+    startExpr <- parseExpression
+    -- TODO doesn't need to be spaces. it can just be '('
+    maybeLength <- maybeParse $ spaces1 >> upperOrLower "FOR" >> spaces1 >> parseExpression
+    spaces
+    char ')'
+    
+    return $ case maybeLength of
+        Nothing     -> FunctionExpression substringFromFunction [strExpr, startExpr]
+        Just len    -> FunctionExpression substringFromToFunction [strExpr, startExpr, len]
+
 negateFunction = SQLFunction {
     functionName    = "-",
     minArgCount     = 1,
     argCountIsFixed = True}
+
+parseNegateFunction :: GenParser Char st Expression
+parseNegateFunction = do
+    try $ char '-' >> notOpChar
+    expr <- parseAnyNonInfixExpression
+    return $ FunctionExpression negateFunction [expr]
+
+notFunction = SQLFunction {
+    functionName    = "NOT",
+    minArgCount     = 1,
+    argCountIsFixed = True}
+
+parseNotFunction = do
+    try $ upperOrLower (functionName notFunction) >>
+          genNotFollowedBy (anyChar `exceptChar` (space <|> char '('))
+    spaces
+    expr <- parseAnyNonInfixExpression
+    return $ FunctionExpression notFunction [expr]
 
 --------------------------------------------------------------------------------
 -- Parse utility functions
@@ -603,6 +646,8 @@ parseIdentifier = do
             quotedText False '`' <|> many1 idChar
     (parseId `genExcept` parseReservedWord) <?> "identifier"
 
+-- | quoted text which allows escaping by doubling the quote char
+--   like "escaped quote char here:"""
 quotedText allowEmpty quoteChar = do
     let quote = char quoteChar
         manyFunc = if allowEmpty then many else many1
@@ -670,7 +715,7 @@ reservedWords =
     map functionName normalSyntaxFunctions ++
     map functionName (concat infixFunctions) ++
     map functionName specialFunctions ++
-    ["BY","CROSS", "FROM", "GROUP", "HAVING", "INNER", "JOIN", "ON", "ORDER", "SELECT", "WHERE"]
+    ["BY","CROSS", "FROM", "FOR", "GROUP", "HAVING", "INNER", "JOIN", "ON", "ORDER", "SELECT", "WHERE"]
 
 -- | tries parsing both the upper and lower case versions of the given string
 upperOrLower :: String -> GenParser Char st String

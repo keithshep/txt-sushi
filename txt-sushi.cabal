@@ -1,6 +1,6 @@
 Name:                txt-sushi
-Version:             0.1
-Synopsis:            A collection of command line utilities for processing text tables
+Version:             0.2
+Synopsis:            Spreadsheets are databases!
 Description:
     TxtSushi is a collection of command line utilities for processing
     comma-separated and tab-delimited files (AKA flat files, spreadsheets).
@@ -18,7 +18,7 @@ Cabal-Version:       >=1.2
 
 Executable tssql
   Main-Is:          tssql.hs
-  Build-Depends:    base,haskell98,directory,containers,parsec
+  Build-Depends:    base,haskell98,directory,containers,parsec,regex-posix
   
   -- creates highly optimized code (slow compile)
   GHC-Options:      -O2 -fvia-C
