@@ -192,9 +192,7 @@ data OrderByItem = OrderByItem {
 
 -- | Parses a SQL select statement
 parseSelectStatement :: GenParser Char st SelectStatement
-parseSelectStatement = do
-    try $ upperOrLower "SELECT" >> spaces1
-    parseSelectBody
+parseSelectStatement = (try $ spaces >> parseToken "SELECT") >> parseSelectBody
 
 -- | Parses all of the stuff that comes after "SELECT "
 parseSelectBody :: GenParser Char st SelectStatement
@@ -205,8 +203,6 @@ parseSelectBody = do
     maybeFrom <- maybeParseFromPart
     maybeWhere <- maybeParseWherePart
     orderBy <- parseOrderByPart
-    
-    spaces
     eof
     
     return SelectStatement {
@@ -217,10 +213,10 @@ parseSelectBody = do
     
     where
         maybeParseFromPart =
-            ifParseThen (spaces1 >> upperOrLower "FROM" >> spaces1) parseTableExpression
+            ifParseThen (parseToken "FROM") parseTableExpression
         
         maybeParseWherePart =
-            ifParseThen (spaces1 >> upperOrLower "WHERE" >> spaces1) parseExpression
+            ifParseThen (parseToken "WHERE") parseExpression
 
 -- | Parses the "ORDER BY ..." part of a select statement returning the list
 --   of OrderByItem's that were parsed (this list will be empty if there is no
@@ -229,10 +225,10 @@ parseOrderByPart :: GenParser Char st [OrderByItem]
 parseOrderByPart =
     ifParseThenElse
         -- if we see an "ORDER BY"
-        (spaces1 >> upperOrLower "ORDER" >> spaces1 >> upperOrLower "BY" >> spaces1)
+        (parseToken "ORDER" >> parseToken "BY")
         
         -- then parse the order expression
-        (sepByAtLeast 1 parseOrderByItem parseCommaSeparator)
+        (sepByAtLeast 1 parseOrderByItem commaSeparator)
         
         -- else there is nothing to sort by
         (return [])
@@ -249,29 +245,29 @@ parseOrderByPart =
                 (return False)
                 
                 -- else try to consume "ASC" but even if we don't it's still
-                -- ascending so return true
-                ((try parseAscending <|> return []) >> return True)
+                -- ascending so return true unconditionally
+                ((parseAscending <|> return []) >> return True)
             
             return $ OrderByItem orderExpr isAscending
         
-        parseAscending  = spaces1 >> ((try $ upperOrLower "ASCENDING") <|> upperOrLower "ASC")
-        parseDescending = spaces1 >> ((try $ upperOrLower "DESCENDING") <|> upperOrLower "DESC")
+        parseAscending  = parseToken "ASCENDING" <|> parseToken "ASC"
+        parseDescending = parseToken "DESCENDING" <|> parseToken "DESC"
 
 --------------------------------------------------------------------------------
 -- Functions for parsing the column names specified after "SELECT"
 --------------------------------------------------------------------------------
 
 parseColumnSelections =
-    sepBy1 parseAnyColType (try parseCommaSeparator)
+    sepBy1 parseAnyColType (try commaSeparator)
     where parseAnyColType = parseAllCols <|>
                             (try parseAllColsFromTbl) <|>
                             (try parseColExpression)
 
-parseAllCols = string "*" >> return AllColumns
+parseAllCols = parseToken "*" >> return AllColumns
 
 parseAllColsFromTbl = do
     tableVal <- parseIdentifier
-    string ".*"
+    string "." >> spaces >> parseToken "*"
     
     return $ AllColumnsFrom tableVal
 
@@ -280,7 +276,7 @@ parseColExpression = parseExpression >>= \expr -> return $ ExpressionColumn expr
 parseColumnId = do
     firstId <- parseIdentifier
     
-    maybeFullyQual <- maybeParse $ char '.'
+    maybeFullyQual <- maybeParse $ (char '.' >> spaces)
     case maybeFullyQual of
         -- No '.' means it's a partially qualified column
         Nothing -> return $ ColumnIdentifier Nothing firstId
@@ -297,7 +293,7 @@ parseTableExpression = do
     
     let ifInnerJoinParse = ifParseThenElse
             -- if
-            parseInnerJoinKeywords
+            ((maybeParse $ parseToken "INNER") >> parseToken "JOIN")
             -- then
             (parseInnerJoinRemainder nextTblChunk)
             -- else
@@ -305,7 +301,7 @@ parseTableExpression = do
         
         ifCrossOrInnerJoinParse = ifParseThenElse
             -- if
-            parseCrossJoinKeywords
+            (parseToken "CROSS" >> parseToken "JOIN")
             -- then
             (parseCrossJoinRemainder nextTblChunk)
             -- else
@@ -316,28 +312,13 @@ parseTableExpression = do
 parseNextTblExpChunk =
     parenthesize parseTableExpression <|>  parseTableIdentifier
 
-parseCrossJoinKeywords = do
-    spaces1
-    upperOrLower "CROSS"
-    spaces1
-    upperOrLower "JOIN"
-    spaces1
-
-parseInnerJoinKeywords = do
-    spaces1
-    maybeParse $ upperOrLower "INNER" >> spaces1
-    upperOrLower "JOIN"
-    spaces1
-
 parseInnerJoinRemainder leftTblExpr = do
     rightTblExpr <- parseTableExpression
     
-    spaces1
-    upperOrLower "ON"
-    spaces1
+    parseToken "ON"
     onPart <- parseExpression
     
-    maybeAlias <- maybeParse $ spaces1 >> parseTableAlias
+    maybeAlias <- maybeParse parseTableAlias
     
     return InnerJoin {
             leftJoinTable=leftTblExpr,
@@ -347,7 +328,7 @@ parseInnerJoinRemainder leftTblExpr = do
 
 parseCrossJoinRemainder leftTblExpr = do
     rightTblExpr <- parseTableExpression
-    maybeAlias <- maybeParse $ spaces1 >> parseTableAlias
+    maybeAlias <- maybeParse parseTableAlias
     
     return CrossJoin {
             leftJoinTable=leftTblExpr,
@@ -356,10 +337,10 @@ parseCrossJoinRemainder leftTblExpr = do
 
 parseTableIdentifier = do
     theId <- parseIdentifier
-    maybeAlias <- maybeParse $ spaces1 >> parseTableAlias
+    maybeAlias <- maybeParse parseTableAlias
     return $ TableIdentifier theId maybeAlias
 
-parseTableAlias = upperOrLower "AS" >> spaces1 >> parseIdentifier
+parseTableAlias = parseToken "AS" >> parseIdentifier
 
 --------------------------------------------------------------------------------
 -- Expression parsing: These can be after "SELECT", "WHERE" or "HAVING"
@@ -392,7 +373,7 @@ parseIntConstant =
     parseInt >>= (\int -> return $ IntegerConstantExpression int)
 
 parseInt :: GenParser Char st Int
-parseInt = do
+parseInt = eatSpacesAfter . (withoutTrailing alphaNum) $ do
     digitTxt <- anyParseTxt
     return $ read digitTxt
     where
@@ -424,7 +405,7 @@ parseRealConstant =
     parseReal >>= (\real -> return $ RealConstantExpression real)
 
 parseReal :: GenParser Char st Double
-parseReal = do
+parseReal = eatSpacesAfter . (withoutTrailing alphaNum) $ do
     realTxt <- anyParseTxt
     return $ read realTxt
     where
@@ -445,9 +426,8 @@ parseAnyNormalFunction =
     in choice allParsers
 
 parseNormalFunction sqlFunc = do
-    try $ (upperOrLower $ functionName sqlFunc)
-    spaces -- TODO careful here: what happens with upperVar? it breaks because of "upper" (maybe a blog entry!!)
-    args <- parenthesize $ argSepBy (minArgCount sqlFunc) parseExpression parseCommaSeparator
+    try (parseToken $ functionName sqlFunc)
+    args <- parenthesize $ argSepBy (minArgCount sqlFunc) parseExpression commaSeparator
     return $ FunctionExpression sqlFunc args
     where argSepBy = if argCountIsFixed sqlFunc then sepByExactly else sepByAtLeast
 
@@ -486,22 +466,10 @@ parseInfixOp infixFunc =
     -- use the magic infix type, always assuming left associativity
     Infix opParser AssocLeft
     where
-        opParser =
-            if funcIsAlphaNum
-            then do
-                try (spaces1 >> (upperOrLower $ functionName infixFunc) >> spaces1)
-                return $ buildExpr
-            else do
-                try (spaces >> (upperOrLower $ functionName infixFunc) >> notOpChar) >> spaces
-                return $ buildExpr
-        buildExpr leftSubExpr rightSubExpr =
-            FunctionExpression {
-                sqlFunction = infixFunc,
-                functionArguments = [leftSubExpr, rightSubExpr]}
-        funcIsAlphaNum = any isAlphaNum (functionName infixFunc)
-
-notOpChar =
-    notFollowedBy $ oneOf "*/+-=<>^|~"
+        opParser = parseToken (functionName infixFunc) >> return buildExpr
+        buildExpr leftSubExpr rightSubExpr = FunctionExpression {
+            sqlFunction = infixFunc,
+            functionArguments = [leftSubExpr, rightSubExpr]}
 
 -- Algebraic
 multiplyFunction = SQLFunction {
@@ -595,17 +563,13 @@ substringFromToFunction = SQLFunction {
 
 parseSubstringFunction :: GenParser Char st Expression
 parseSubstringFunction = do
-    try $ upperOrLower (functionName substringFromFunction) >> spaces >> char '('
-    spaces
+    parseToken $ functionName substringFromFunction
+    eatSpacesAfter $ char '('
     strExpr <- parseExpression
-    spaces1
-    upperOrLower "FROM"
-    spaces1
+    parseToken "FROM"
     startExpr <- parseExpression
-    -- TODO doesn't need to be spaces. it can just be '('
-    maybeLength <- maybeParse $ spaces1 >> upperOrLower "FOR" >> spaces1 >> parseExpression
-    spaces
-    char ')'
+    maybeLength <- ifParseThen (parseToken "FOR") parseExpression
+    eatSpacesAfter $ char ')'
     
     return $ case maybeLength of
         Nothing     -> FunctionExpression substringFromFunction [strExpr, startExpr]
@@ -618,7 +582,7 @@ negateFunction = SQLFunction {
 
 parseNegateFunction :: GenParser Char st Expression
 parseNegateFunction = do
-    try $ char '-' >> notOpChar
+    parseToken "-"
     expr <- parseAnyNonInfixExpression
     return $ FunctionExpression negateFunction [expr]
 
@@ -628,9 +592,7 @@ notFunction = SQLFunction {
     argCountIsFixed = True}
 
 parseNotFunction = do
-    try $ upperOrLower (functionName notFunction) >>
-          genNotFollowedBy (anyChar `exceptChar` (space <|> char '('))
-    spaces
+    parseToken $ functionName notFunction
     expr <- parseAnyNonInfixExpression
     return $ FunctionExpression notFunction [expr]
 
@@ -638,13 +600,37 @@ parseNotFunction = do
 -- Parse utility functions
 --------------------------------------------------------------------------------
 
+parseOpChar = oneOf opChars
+
+opChars = "~!@#$%^&*-+=|\\<>/?"
+
+withoutTrailing endToTest p =
+    try $ p >>= (\x -> genNotFollowedBy endToTest >> return x)
+
+-- | like the lexeme function, this function eats all spaces after the given
+--   parser, but this one works for me and lexeme doesn't
+eatSpacesAfter p = p >>= (\x -> spaces >> return x)
+
+-- | find out if the given string ends with an op char
+endsWithOp strToTest = last strToTest `elem` opChars
+
+-- | A token parser that allows either upper or lower case. all trailing
+--   whitespace is consumed
+parseToken :: String -> GenParser Char st String
+parseToken tokStr =
+    eatSpacesAfter (try $ if endsWithOp tokStr then parseOpTok else parseAlphaNumTok)
+    where
+        parseOpTok = withoutTrailing parseOpChar (string tokStr)
+        parseAlphaNumTok = withoutTrailing alphaNum (upperOrLower tokStr)
+
 -- | parses an identifier. you can use a tick '`' as a quote for
 --   an identifier with white-space
 parseIdentifier = do
     let parseId = do
             let idChar = alphaNum <|> char '_'
+            notFollowedBy digit
             quotedText False '`' <|> many1 idChar
-    (parseId `genExcept` parseReservedWord) <?> "identifier"
+    ((eatSpacesAfter parseId) `genExcept` parseReservedWord) <?> "identifier"
 
 -- | quoted text which allows escaping by doubling the quote char
 --   like "escaped quote char here:"""
@@ -656,6 +642,7 @@ quotedText allowEmpty quoteChar = do
     textValue <- manyFunc $ (anyChar `genExcept` quote) <|>
                             try (escapedQuote quoteChar)
     quote
+    spaces
     
     return textValue
 
@@ -663,16 +650,14 @@ exceptChar parser theException = notFollowedBy theException >> parser
 
 escapedQuote quoteChar = string [quoteChar, quoteChar] >> return quoteChar
 
-parseCommaSeparator = spaces >> char ',' >> spaces
+commaSeparator = eatSpacesAfter $ char ','
 
 -- | Wraps parentheses parsers around the given inner parser
 parenthesize :: GenParser Char st a -> GenParser Char st a
 parenthesize innerParser = do
-    char '('
-    spaces
+    eatSpacesAfter $ char '('
     innerParseResults <- innerParser
-    spaces
-    char ')'
+    eatSpacesAfter $ char ')'
     return innerParseResults
 
 -- | Either parses the left or right parser returning the result of the
@@ -703,12 +688,8 @@ ifParseThenElse ifParse thenPart elsePart = do
         Nothing -> elsePart
 
 parseReservedWord = do
-    let reservedWordParsers = map reservedWordParser reservedWords
+    let reservedWordParsers = map parseToken reservedWords
     choice reservedWordParsers
-    where reservedWordParser word = do
-            parseVal <- upperOrLower word
-            notFollowedBy alphaNum
-            return parseVal
 
 -- TODO are function names reserved... i don't think so
 reservedWords =
