@@ -45,3 +45,7 @@ Executable tabtopretty
   Main-Is:          tabtopretty.hs
   Build-Depends:    base,haskell98,directory,containers
   GHC-Options:      -O2 -fvia-C
+
+Executable namecolumns
+  Main-Is:          namecolumns.hs
+  Build-Depends:    base,haskell98,directory,containers
