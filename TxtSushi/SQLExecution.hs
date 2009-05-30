@@ -397,7 +397,7 @@ evalExpression (FunctionExpression sqlFun funArgs) columnIds tblRow
     
     -- algebraic
     | sqlFun == multiplyFunction = algebraWithCoercion (*) (*) evaluatedArgs
-    | sqlFun == divideFunction = realExpression $ foldl1' (/) (map realValue evaluatedArgs)
+    | sqlFun == divideFunction = realExpression $ (realValue arg1) / (realValue arg2)
     | sqlFun == plusFunction = algebraWithCoercion (+) (+) evaluatedArgs
     | sqlFun == minusFunction = algebraWithCoercion (-) (-) evaluatedArgs
     

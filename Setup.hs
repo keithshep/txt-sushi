@@ -31,7 +31,8 @@ runTxtSushiTests _ _ _ _ = do
                                     ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table2", columnId = "col1"}}]},
                             maybeTableAlias = Nothing}),
                     maybeWhereFilter = Nothing,
-                    orderByItems = []}
+                    orderByItems = [],
+                    groupByExpressions = []}
         stmt1_1Txt =
             "select table1.col1, table2.* " ++
             "from table1 inner join table2 on table1.col1 = table2.col1"
@@ -64,7 +65,8 @@ runTxtSushiTests _ _ _ _ = do
                                 FunctionExpression {
                                     sqlFunction = SQLFunction {functionName = "LOWER", minArgCount = 1, argCountIsFixed = True},
                                     functionArguments = [ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}]}]}),
-                    orderByItems = []}
+                    orderByItems = [],
+                    groupByExpressions = []}
         stmt2_1Txt =
             "select table1.col1, table2.* " ++
             "from table1 join table2 on table1.col1 = table2.col1 " ++
@@ -101,7 +103,8 @@ runTxtSushiTests _ _ _ _ = do
                                     functionArguments = [ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}]}]}),
                     orderByItems = [OrderByItem {
                         orderExpression = ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "firstName"}},
-                        orderAscending = True}]}
+                        orderAscending = True}],
+                    groupByExpressions = []}
         stmt3_1Txt =
             "select table1.col1, table2.* " ++
             "from table1 join table2 on table1.col1 = table2.col1 " ++
@@ -142,7 +145,8 @@ runTxtSushiTests _ _ _ _ = do
                                     functionArguments = [ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}]}]}),
                     orderByItems = [OrderByItem {
                         orderExpression = ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "firstName"}},
-                        orderAscending = False}]}
+                        orderAscending = False}],
+                    groupByExpressions = []}
         stmt4_1Txt =
             "select table1.col1, table2.* " ++
             "from table1 join table2 on table1.col1 = table2.col1 " ++
@@ -177,7 +181,7 @@ runTxtSushiTests _ _ _ _ = do
 
 testSqlSelect :: SelectStatement -> String -> IO ()
 testSqlSelect expectedResult selectStatementText = do
-    let stmtParseResult = parse parseSelectStatement "" selectStatementText
+    let stmtParseResult = parse (withTrailing eof parseSelectStatement) "" selectStatementText
         colNums = take (length selectStatementText) ([1 .. 9] ++ cycle [0 .. 9])
     putStrLn ""
     putStrLn "Testing:"

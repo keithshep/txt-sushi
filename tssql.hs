@@ -79,7 +79,7 @@ main = do
     
     let (argMap, argTail) = extractCommandLineArguments sqlCmdLine args
         showHelp = Map.member helpOption argMap || length argTail /= 1
-        parseOutcome = parse parseSelectStatement "" (head argTail)
+        parseOutcome = parse (withTrailing eof parseSelectStatement) "" (head argTail)
     
     if showHelp then printUsage progName else
         case parseOutcome of

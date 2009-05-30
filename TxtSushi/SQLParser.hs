@@ -24,6 +24,8 @@ module TxtSushi.SQLParser (
     OrderByItem(..),
     prettyFormatWithArgs,
     SQLFunction(..),
+    withTrailing,
+    withoutTrailing,
     
     -- String SQL function
     concatenateFunction,
@@ -72,7 +74,8 @@ data SelectStatement = SelectStatement {
     columnSelections :: [ColumnSelection],
     maybeFromTable :: Maybe TableExpression,
     maybeWhereFilter :: Maybe Expression,
-    orderByItems :: [OrderByItem]}
+    orderByItems :: [OrderByItem],
+    groupByExpressions :: [Expression]}
     deriving (Show, Ord, Eq)
 
 data TableExpression =
@@ -203,13 +206,15 @@ parseSelectBody = do
     maybeFrom <- maybeParseFromPart
     maybeWhere <- maybeParseWherePart
     orderBy <- parseOrderByPart
-    eof
+    groupByExprs <- parseGroupByPart
+    
     
     return SelectStatement {
         columnSelections    = columnVals,
         maybeFromTable      = maybeFrom,
         maybeWhereFilter    = maybeWhere,
-        orderByItems        = orderBy}
+        orderByItems        = orderBy,
+        groupByExpressions  = groupByExprs}
     
     where
         maybeParseFromPart =
@@ -225,10 +230,10 @@ parseOrderByPart :: GenParser Char st [OrderByItem]
 parseOrderByPart =
     ifParseThenElse
         -- if we see an "ORDER BY"
-        (parseToken "ORDER" >> parseToken "BY")
+        (parseToken "ORDER")
         
-        -- then parse the order expression
-        (sepByAtLeast 1 parseOrderByItem commaSeparator)
+        -- then parse the order expressions
+        (parseToken "BY" >> sepByAtLeast 1 parseOrderByItem commaSeparator)
         
         -- else there is nothing to sort by
         (return [])
@@ -252,6 +257,17 @@ parseOrderByPart =
         
         parseAscending  = parseToken "ASCENDING" <|> parseToken "ASC"
         parseDescending = parseToken "DESCENDING" <|> parseToken "DESC"
+
+parseGroupByPart =
+    ifParseThenElse
+        -- if we see an "ORDER BY"
+        (parseToken "GROUP")
+        
+        -- then parse the expressions
+        (parseToken "BY" >> sepByAtLeast 1 parseExpression commaSeparator)
+        
+        -- else there is nothing to sort by
+        (return [])
 
 --------------------------------------------------------------------------------
 -- Functions for parsing the column names specified after "SELECT"
@@ -349,7 +365,7 @@ parseTableAlias = parseToken "AS" >> parseIdentifier
 parseExpression :: GenParser Char st Expression
 parseExpression =
     let opTable = map (map parseInfixOp) infixFunctions
-    in buildExpressionParser opTable parseAnyNonInfixExpression
+    in buildExpressionParser opTable parseAnyNonInfixExpression <?> "expression"
 
 parseAnyNonInfixExpression :: GenParser Char st Expression
 parseAnyNonInfixExpression =
@@ -373,7 +389,7 @@ parseIntConstant =
     parseInt >>= (\int -> return $ IntegerConstantExpression int)
 
 parseInt :: GenParser Char st Int
-parseInt = eatSpacesAfter . (withoutTrailing alphaNum) $ do
+parseInt = eatSpacesAfter . try . (withoutTrailing alphaNum) $ do
     digitTxt <- anyParseTxt
     return $ read digitTxt
     where
@@ -387,25 +403,23 @@ parseInt = eatSpacesAfter . (withoutTrailing alphaNum) $ do
 -- | returns an int if it can be read from the string
 maybeReadInt :: String -> Maybe Int
 maybeReadInt intStr =
-    case parse (parseToEof parseInt) "" intStr of
+    case parse (withTrailing eof parseInt) "" intStr of
         Left _      -> Nothing
         Right int   -> Just int
 
 -- | returns a real if it can be read from the string
 maybeReadReal :: String -> Maybe Double
 maybeReadReal realStr =
-    case parse (parseToEof parseReal) "" realStr of
+    case parse (withTrailing eof parseReal) "" realStr of
         Left _      -> maybeReadInt realStr >>= (\int -> Just $ fromIntegral int)
         Right real  -> Just real
-
-parseToEof p = p >>= \x -> (eof >> return x)
 
 parseRealConstant :: GenParser Char st Expression
 parseRealConstant =
     parseReal >>= (\real -> return $ RealConstantExpression real)
 
 parseReal :: GenParser Char st Double
-parseReal = eatSpacesAfter . (withoutTrailing alphaNum) $ do
+parseReal = eatSpacesAfter . try . (withoutTrailing alphaNum) $ do
     realTxt <- anyParseTxt
     return $ read realTxt
     where
@@ -604,8 +618,9 @@ parseOpChar = oneOf opChars
 
 opChars = "~!@#$%^&*-+=|\\<>/?"
 
-withoutTrailing endToTest p =
-    try $ p >>= (\x -> genNotFollowedBy endToTest >> return x)
+withoutTrailing end p = p >>= (\x -> genNotFollowedBy end >> return x)
+
+withTrailing end p = p >>= (\x -> end >> return x)
 
 -- | like the lexeme function, this function eats all spaces after the given
 --   parser, but this one works for me and lexeme doesn't
