@@ -6,7 +6,7 @@ import System.IO
 
 import TxtSushi.IO
 import TxtSushi.Transform
-import Util.IOUtil
+import TxtSushi.Util.IOUtil
 
 closeAll [] = do return ()
 closeAll (handle:tail) = do

@@ -23,7 +23,7 @@ import Text.Regex.Posix
 
 import TxtSushi.SQLParser
 import TxtSushi.Transform
-import Util.ListUtil
+import TxtSushi.Util.ListUtil
 
 -- | an SQL table data structure
 --   TODO: need allColumnsColumnIdentifiers and allColumnsTableRows so that

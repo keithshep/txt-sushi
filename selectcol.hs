@@ -5,8 +5,8 @@ import System.IO
 
 import TxtSushi.IO
 import TxtSushi.Transform
-import Util.CommandLineArgument
-import Util.IOUtil
+import TxtSushi.Util.CommandLineArgument
+import TxtSushi.Util.IOUtil
 
 {-
 byNameOption = OptionDescription

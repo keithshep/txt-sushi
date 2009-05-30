@@ -13,7 +13,7 @@ module TxtSushi.IO (
     doubleQuote) where
 
 import Data.List
-import Util.ListUtil
+import TxtSushi.Util.ListUtil
 
 {- |
 'Format' allows you to specify different flat-file formats so that you

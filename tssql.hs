@@ -21,8 +21,8 @@ import TxtSushi.IO
 import TxtSushi.SQLExecution
 import TxtSushi.SQLParser
 import TxtSushi.Transform
-import Util.CommandLineArgument
-import Util.IOUtil
+import TxtSushi.Util.CommandLineArgument
+import TxtSushi.Util.IOUtil
 
 helpOption = OptionDescription {
     isRequired              = False,

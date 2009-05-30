@@ -1,4 +1,4 @@
-module Util.CommandLineArgument (
+module TxtSushi.Util.CommandLineArgument (
     extractCommandLineArguments,
     formatCommandLine,
     CommandLineDescription(CommandLineDescription),

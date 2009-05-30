@@ -60,7 +60,7 @@ import Data.Char
 import Data.List
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Expr
-import Util.ListUtil
+import TxtSushi.Util.ListUtil
 
 --------------------------------------------------------------------------------
 -- The data definition for select statements

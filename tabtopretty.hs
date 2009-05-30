@@ -5,7 +5,7 @@ import System.Exit
 import System.IO
 
 import TxtSushi.IO
-import Util.IOUtil
+import TxtSushi.Util.IOUtil
 
 main = do
     args <- getArgs

@@ -1,4 +1,4 @@
-module Util.IOUtil (
+module TxtSushi.Util.IOUtil (
     bufferStdioToTempFile,
     getContentsFromFileOrStdin,
     getAll) where

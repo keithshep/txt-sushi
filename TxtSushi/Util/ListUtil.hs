@@ -1,4 +1,4 @@
-module Util.ListUtil (
+module TxtSushi.Util.ListUtil (
     cascadingOrder,
     replaceAll) where
 
