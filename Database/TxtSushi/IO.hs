@@ -2,7 +2,7 @@
 The 'FlatFile' module is for reading misc. 'FlatFile' formats like CSV or
 tab delimited
 -}
-module TxtSushi.IO (
+module Database.TxtSushi.IO (
     formatTableWithWidths,
     maxTableColumnWidths,
     formatTable,
@@ -13,7 +13,7 @@ module TxtSushi.IO (
     doubleQuote) where
 
 import Data.List
-import TxtSushi.Util.ListUtil
+import Database.TxtSushi.Util.ListUtil
 
 {- |
 'Format' allows you to specify different flat-file formats so that you

@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------------
 -- |
--- Module      :  TxtSushi.SQLExecution
+-- Module      :  Database.TxtSushi.SQLExecution
 -- Copyright   :  (c) Keith Sheppard 2009
 -- License     :  GPL3 or greater
 -- Maintainer  :  keithshep@gmail.com
@@ -11,7 +11,7 @@
 --
 -----------------------------------------------------------------------------
 
-module TxtSushi.SQLExecution (
+module Database.TxtSushi.SQLExecution (
     select,
     databaseTableToTextTable,
     textTableToDatabaseTable) where
@@ -21,9 +21,9 @@ import Data.List
 import qualified Data.Map as Map
 import Text.Regex.Posix
 
-import TxtSushi.SQLParser
-import TxtSushi.Transform
-import TxtSushi.Util.ListUtil
+import Database.TxtSushi.SQLParser
+import Database.TxtSushi.Transform
+import Database.TxtSushi.Util.ListUtil
 
 -- | an SQL table data structure
 --   TODO: need allColumnsColumnIdentifiers and allColumnsTableRows so that

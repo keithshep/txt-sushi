@@ -3,8 +3,8 @@ import System.Environment
 import System.Exit
 import System.IO
 
-import TxtSushi.IO
-import TxtSushi.Util.IOUtil
+import Database.TxtSushi.IO
+import Database.TxtSushi.Util.IOUtil
 
 main = do
     args <- getArgs

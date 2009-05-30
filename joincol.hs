@@ -4,9 +4,9 @@ import System.Environment
 import System.Exit
 import System.IO
 
-import TxtSushi.IO
-import TxtSushi.Transform
-import TxtSushi.Util.IOUtil
+import Database.TxtSushi.IO
+import Database.TxtSushi.Transform
+import Database.TxtSushi.Util.IOUtil
 
 closeAll [] = do return ()
 closeAll (handle:tail) = do

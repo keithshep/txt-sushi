@@ -4,7 +4,7 @@ import Distribution.Simple.LocalBuildInfo(LocalBuildInfo)
 
 import Text.ParserCombinators.Parsec
 
-import TxtSushi.SQLParser
+import Database.TxtSushi.SQLParser
 
 main = defaultMainWithHooks $ simpleUserHooks {runTests = runTxtSushiTests}
 

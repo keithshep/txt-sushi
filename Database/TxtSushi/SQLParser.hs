@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------------
 -- |
--- Module      :  TxtSushi.SQLParser
+-- Module      :  Database.TxtSushi.SQLParser
 -- Copyright   :  (c) Keith Sheppard 2009
 -- License     :  GPL3 or greater
 -- Maintainer  :  keithshep@gmail.com
@@ -11,7 +11,7 @@
 --
 -----------------------------------------------------------------------------
 
-module TxtSushi.SQLParser (
+module Database.TxtSushi.SQLParser (
     allMaybeTableNames,
     parseSelectStatement,
     SelectStatement(..),
@@ -62,7 +62,7 @@ import Data.Char
 import Data.List
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Expr
-import TxtSushi.Util.ListUtil
+import Database.TxtSushi.Util.ListUtil
 
 --------------------------------------------------------------------------------
 -- The data definition for select statements

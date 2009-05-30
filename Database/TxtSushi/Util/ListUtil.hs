@@ -1,4 +1,4 @@
-module TxtSushi.Util.ListUtil (
+module Database.TxtSushi.Util.ListUtil (
     cascadingOrder,
     replaceAll) where
 

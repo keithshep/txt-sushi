@@ -17,12 +17,12 @@ import System.IO
 
 import Text.ParserCombinators.Parsec
 
-import TxtSushi.IO
-import TxtSushi.SQLExecution
-import TxtSushi.SQLParser
-import TxtSushi.Transform
-import TxtSushi.Util.CommandLineArgument
-import TxtSushi.Util.IOUtil
+import Database.TxtSushi.IO
+import Database.TxtSushi.SQLExecution
+import Database.TxtSushi.SQLParser
+import Database.TxtSushi.Transform
+import Database.TxtSushi.Util.CommandLineArgument
+import Database.TxtSushi.Util.IOUtil
 
 helpOption = OptionDescription {
     isRequired              = False,
