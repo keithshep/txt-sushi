@@ -177,11 +177,12 @@ orderRowsBy [] dbTable = dbTable
 orderRowsBy orderBys dbTable =
     let
         -- curry in the order and col ID params to make a row comparison function
-        compareFunc = compareRowsOnOrderItems orderBys (columnIdentifiers dbTable)
+        compareRows = compareRowsOnOrderItems orderBys (columnIdentifiers dbTable)
+        sortedRows = sortBy compareRows (tableRows dbTable)
     in
-        dbTable {tableRows = sortBy compareFunc (tableRows dbTable)}
+        dbTable {tableRows = sortedRows}
 
--- | Compares two rows using the given OrderByItem and column ID's
+-- | Compares two rows using the given OrderByItems and column ID's
 compareRowsOnOrderItems :: [OrderByItem] -> [ColumnIdentifier] -> [EvaluatedExpression] -> [EvaluatedExpression] -> Ordering
 compareRowsOnOrderItems orderBys colIds row1 row2 =
     cascadingOrder $ toOrderList orderBys
@@ -195,9 +196,7 @@ compareRowsOnOrderItem :: OrderByItem -> [ColumnIdentifier] -> [EvaluatedExpress
 compareRowsOnOrderItem orderBy colIds row1 row2 =
     let
         orderExpr = orderExpression orderBy
-        row1Eval = evalExpression orderExpr colIds row1
-        row2Eval = evalExpression orderExpr colIds row2
-        rowComp = row1Eval `compare` row2Eval
+        rowComp = compareRowsOnExpression orderExpr colIds row1 row2
     in
         if orderAscending orderBy then
             rowComp
@@ -209,6 +208,39 @@ reverseOrdering :: Ordering -> Ordering
 reverseOrdering EQ = EQ
 reverseOrdering LT = GT
 reverseOrdering GT = LT
+
+-- | Compares two rows using the given expressions
+compareRowsOnExpressions :: [Expression] -> [ColumnIdentifier] -> [EvaluatedExpression] -> [EvaluatedExpression] -> Ordering
+compareRowsOnExpressions exprs colIds row1 row2 =
+    cascadingOrder $ toOrderList exprs
+    where
+        toOrderList [] = []
+        toOrderList (expr:exprTail) =
+            (compareRowsOnExpression expr colIds row1 row2):(toOrderList exprTail)
+
+-- | Compares two rows using the given expression
+compareRowsOnExpression :: Expression -> [ColumnIdentifier] -> [EvaluatedExpression] -> [EvaluatedExpression] -> Ordering
+compareRowsOnExpression expr colIds row1 row2 =
+    let
+        row1Eval = evalExpression expr colIds row1
+        row2Eval = evalExpression expr colIds row2
+    in
+        row1Eval `compare` row2Eval
+
+groupRowsBy :: [Expression] -> DatabaseTable -> [DatabaseTable]
+groupRowsBy groupByExprs dbTable =
+    -- create a new table for every row grouping
+    map replaceTableRows rowGroups
+    where
+        tblRows = tableRows dbTable
+        
+        -- curry in the exprs and col ID params to make a row comparison function
+        compareRows = compareRowsOnExpressions groupByExprs (columnIdentifiers dbTable)
+        rowsEq row1 row2 = row1 `compareRows` row2 == EQ
+        
+        sortedRows = sortBy compareRows tblRows
+        rowGroups = groupBy rowsEq sortedRows
+        replaceTableRows newRows = dbTable {tableRows = newRows}
 
 -- | Evaluate the FROM table part, and returns the FROM table. Also returns
 --   a mapping of new table names from aliases etc.
