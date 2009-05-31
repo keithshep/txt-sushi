@@ -13,7 +13,7 @@ License-File:        COPYING
 Author:              Keith Sheppard
 Maintainer:          keithshep@gmail.com
 Build-Type:          Simple
-Category:            Utils, Text, Database
+Category:            Database, Utils, Text
 Cabal-Version:       >=1.2
 
 Executable tssql
@@ -49,3 +49,4 @@ Executable tabtopretty
 Executable namecolumns
   Main-Is:          namecolumns.hs
   Build-Depends:    base,haskell98,directory,containers
+  GHC-Options:      -O2 -fvia-C
