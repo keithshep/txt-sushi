@@ -11,5 +11,5 @@
 
 ../dist/build/tssql/tssql -table STATION station.csv -table STATS stats.csv \
 'SELECT LAT_N, CITY, TEMP_F FROM STATS JOIN STATION ON STATS.ID = STATION.ID
-WHERE MONTH = 7 ORDER BY TEMP_F' \
+WHERE MONTH = 7 ORDER BY TEMP_F + 0' \
 | ../dist/build/csvtopretty/csvtopretty -
