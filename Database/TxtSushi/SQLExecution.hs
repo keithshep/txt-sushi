@@ -165,11 +165,39 @@ select selectStatement tableMap =
         filteredTbl = case maybeWhereFilter selectStatement of
             Nothing -> fromTbl
             Just expr -> filterRowsBy expr fromTbl
-        orderedTbl = orderRowsBy (orderByItems selectStatement) filteredTbl
+    in
+        case maybeGroupByHaving selectStatement of
+            Nothing -> finishWithNormalSelect selectStatement filteredTbl
+            Just groupByPart ->
+                let
+                    tblGroups = performGroupBy groupByPart filteredTbl
+                in
+                    finishWithAggregateSelect selectStatement tblGroups
+
+finishWithNormalSelect selectStatement filteredDbTable =
+    let
+        orderedTbl = orderRowsBy (orderByItems selectStatement) filteredDbTable
         selectedTbl =
             evaluateColumnSelections (columnSelections selectStatement) orderedTbl
     in
         selectedTbl
+
+finishWithAggregateSelect selectStatement aggregateTbls =
+    let
+        orderedTbls = orderTablesBy (orderByItems selectStatement) aggregateTbls
+        selectedTbl =
+            evaluateAggregateColumnSelections (columnSelections selectStatement) orderedTbls
+    in
+        selectedTbl
+
+performGroupBy :: ([Expression], Maybe Expression) -> DatabaseTable -> [DatabaseTable]
+performGroupBy (groupByExprs, maybeExpr) dbTable =
+    let
+        tblGroups = groupRowsBy groupByExprs dbTable
+    in
+        case maybeExpr of
+            Nothing -> tblGroups
+            Just expr -> filterTablesBy expr tblGroups
 
 -- | sorts table rows by the given order by items
 orderRowsBy :: [OrderByItem] -> DatabaseTable -> DatabaseTable
@@ -181,6 +209,11 @@ orderRowsBy orderBys dbTable =
         sortedRows = sortBy compareRows (tableRows dbTable)
     in
         dbTable {tableRows = sortedRows}
+
+orderTablesBy :: [OrderByItem] -> [DatabaseTable] -> [DatabaseTable]
+orderTablesBy [] dbTables = dbTables
+orderTablesBy orderBys dbTables =
+    sortBy (compareTablesOnOrderItems orderBys) dbTables
 
 -- | Compares two rows using the given OrderByItems and column ID's
 compareRowsOnOrderItems :: [OrderByItem] -> [ColumnIdentifier] -> [EvaluatedExpression] -> [EvaluatedExpression] -> Ordering
@@ -197,6 +230,25 @@ compareRowsOnOrderItem orderBy colIds row1 row2 =
     let
         orderExpr = orderExpression orderBy
         rowComp = compareRowsOnExpression orderExpr colIds row1 row2
+    in
+        if orderAscending orderBy then
+            rowComp
+        else
+            reverseOrdering rowComp
+
+compareTablesOnOrderItems :: [OrderByItem] -> DatabaseTable -> DatabaseTable -> Ordering
+compareTablesOnOrderItems orderBys dbTable1 dbTable2 =
+    cascadingOrder $ toOrderList orderBys
+    where
+        toOrderList [] = []
+        toOrderList (orderBy:orderByTail) =
+            (compareTablesOnOrderItem orderBy dbTable1 dbTable2):(toOrderList orderByTail)
+
+compareTablesOnOrderItem :: OrderByItem -> DatabaseTable -> DatabaseTable -> Ordering
+compareTablesOnOrderItem orderBy dbTable1 dbTable2 =
+    let
+        orderExpr = orderExpression orderBy
+        rowComp = compareTablesOnExpression orderExpr dbTable1 dbTable2
     in
         if orderAscending orderBy then
             rowComp
@@ -227,6 +279,14 @@ compareRowsOnExpression expr colIds row1 row2 =
     in
         row1Eval `compare` row2Eval
 
+compareTablesOnExpression :: Expression -> DatabaseTable -> DatabaseTable -> Ordering
+compareTablesOnExpression expr tbl1 tbl2 =
+    let
+        tbl1Eval = evalAggregateExpression expr tbl1
+        tbl2Eval = evalAggregateExpression expr tbl2
+    in
+        tbl1Eval `compare` tbl2Eval
+
 groupRowsBy :: [Expression] -> DatabaseTable -> [DatabaseTable]
 groupRowsBy groupByExprs dbTable =
     -- create a new table for every row grouping
@@ -236,7 +296,7 @@ groupRowsBy groupByExprs dbTable =
         
         -- curry in the exprs and col ID params to make a row comparison function
         compareRows = compareRowsOnExpressions groupByExprs (columnIdentifiers dbTable)
-        rowsEq row1 row2 = row1 `compareRows` row2 == EQ
+        row1 `rowsEq` row2 = (row1 `compareRows` row2) == EQ
         
         sortedRows = sortBy compareRows tblRows
         rowGroups = groupBy rowsEq sortedRows
@@ -347,6 +407,28 @@ tableConcat dbTable1 dbTable2 =
     in
         DatabaseTable concatIds concatRows
 
+evaluateAggregateColumnSelections :: [ColumnSelection] -> [DatabaseTable] -> DatabaseTable
+evaluateAggregateColumnSelections colSelections tblGroups =
+    let
+        selectionTbls = map ($ tblGroups) (map evaluateAggregateColumnSelection colSelections)
+    in
+        foldl1' tableConcat selectionTbls
+
+evaluateAggregateColumnSelection :: ColumnSelection -> [DatabaseTable] -> DatabaseTable
+evaluateAggregateColumnSelection AllColumns tblGroups =
+    error "* is not allowed for aggregate column selections"
+evaluateAggregateColumnSelection (AllColumnsFrom srcTblName) tblGroups =
+    error $ srcTblName ++ ".* is not allowed for aggregate column selections"
+evaluateAggregateColumnSelection (ExpressionColumn expr) [] =
+    error $ "internal error: empty aggregate table group"
+evaluateAggregateColumnSelection (ExpressionColumn expr) tblGroups@(headGrp:tailGrp) =
+    let
+        tblColIds = columnIdentifiers headGrp
+        exprColId = expressionIdentifier expr
+        evaluatedExprs = map (evalAggregateExpression expr) tblGroups
+    in
+        DatabaseTable [exprColId] (transpose [evaluatedExprs])
+
 evaluateColumnSelection :: ColumnSelection -> DatabaseTable -> DatabaseTable
 evaluateColumnSelection AllColumns dbTable = dbTable
 evaluateColumnSelection (AllColumnsFrom srcTblName) dbTable =
@@ -390,20 +472,63 @@ filterRowsBy filterExpr table =
     where myBoolEvalExpr row =
             boolValue $ evalExpression filterExpr (columnIdentifiers table) row
 
-evalExpression :: Expression -> [ColumnIdentifier] -> [EvaluatedExpression] -> EvaluatedExpression
--- Here's the easy stuff. evaluate constants
-evalExpression (StringConstantExpression string) _ _ = stringExpression string
-evalExpression (IntegerConstantExpression int) _ _ = intExpression int
-evalExpression (RealConstantExpression real) _ _ = realExpression real
+filterTablesBy :: Expression -> [DatabaseTable] -> [DatabaseTable]
+filterTablesBy expr dbTables =
+    filter filterFunc dbTables
+    where
+        filterFunc = boolValue . evalAggregateExpression expr
 
--- A little bit harder. evaluate a column expression
+-- | evaluate the given expression against a table
+--   TODO need better error detection and reporting for non-aggregate
+--   expressions
+evalAggregateExpression :: Expression -> DatabaseTable -> EvaluatedExpression
+evalAggregateExpression (StringConstantExpression string) _ = stringExpression string
+evalAggregateExpression (IntegerConstantExpression int) _   = intExpression int
+evalAggregateExpression (RealConstantExpression real) _     = realExpression real
+evalAggregateExpression (ColumnExpression col) dbTable =
+    case findIndex (columnMatches col) (columnIdentifiers dbTable) of
+        Just colIndex -> (head $ tableRows dbTable) !! colIndex
+        Nothing -> error $ "Failed to find column named: " ++ (prettyFormatColumn col)
+
+evalAggregateExpression (FunctionExpression sqlFun funArgs) dbTable =
+    evalSQLFunction sqlFun $ if isAggregate sqlFun then manyArgs else aggregatedArgs
+    where
+        aggregatedArgs = map (\e -> evalAggregateExpression e dbTable) funArgs
+        manyArgs =
+            let
+                tblColIds = columnIdentifiers dbTable
+                tblRows = tableRows dbTable
+                evaluateExprs expr = map (evalExpression expr tblColIds) tblRows
+                allArgs = concatMap evaluateExprs funArgs
+            in
+                allArgs
+
+        -- | an aggregate function is one whose min function count is 1 and whose
+        --   arg count is not fixed
+        isAggregate sqlFun =
+            minArgCount sqlFun == 1 && not (argCountIsFixed sqlFun)
+
+-- | evaluate the given expression against a table row
+evalExpression :: Expression -> [ColumnIdentifier] -> [EvaluatedExpression] -> EvaluatedExpression
+evalExpression (StringConstantExpression string) _ _    = stringExpression string
+evalExpression (IntegerConstantExpression int) _ _      = intExpression int
+evalExpression (RealConstantExpression real) _ _        = realExpression real
 evalExpression (ColumnExpression col) columnIds tblRow =
     case findIndex (columnMatches col) columnIds of
         Just colIndex -> tblRow !! colIndex
         Nothing -> error $ "Failed to find column named: " ++ (prettyFormatColumn col)
+evalExpression (FunctionExpression sqlFun funArgs) columnIds tblRow =
+    evalSQLFunction sqlFun (map evalArgExpr funArgs)
+    where
+        evalArgExpr expr = evalExpression expr columnIds tblRow
 
--- this is where the action is. evaluate a function
-evalExpression (FunctionExpression sqlFun funArgs) columnIds tblRow
+evalSQLFunction sqlFun evaluatedArgs
+    -- Global validation
+    -- TODO this error should be more helpful than it is
+    | not $ argCountIsValid =
+        error $ "cannot apply " ++ show (length evaluatedArgs) ++
+                " arguments to " ++ functionName sqlFun
+    
     -- String functions
     | sqlFun == upperFunction = stringExpression $ map toUpper (stringValue arg1)
     | sqlFun == lowerFunction = stringExpression $ map toLower (stringValue arg1)
@@ -449,8 +574,6 @@ evalExpression (FunctionExpression sqlFun funArgs) columnIds tblRow
         arg2 = evaluatedArgs !! 1
         arg3 = evaluatedArgs !! 2
         subStringF start extent string = take extent (drop start string)
-        evaluatedArgs = map evalArgExpr funArgs
-        evalArgExpr expr = evalExpression expr columnIds tblRow
         algebraWithCoercion intFunc realFunc args =
             if any useRealAlgebra args then
                 realExpression $ foldl1' realFunc (map realValue args)
@@ -463,6 +586,14 @@ evalExpression (FunctionExpression sqlFun funArgs) columnIds tblRow
                 maybeInt = maybeIntValue expr
             in
                 prefType == RealType || maybeInt == Nothing
+        
+        argCountIsValid =
+            let
+                argCount = length evaluatedArgs
+                minArgs = minArgCount sqlFun
+                argsFixed = argCountIsFixed sqlFun
+            in
+                argCount == minArgs || (not argsFixed && argCount > minArgs)
 
 -- | trims leading and trailing spaces
 trimSpace :: String -> String
