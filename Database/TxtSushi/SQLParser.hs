@@ -74,8 +74,8 @@ data SelectStatement = SelectStatement {
     columnSelections :: [ColumnSelection],
     maybeFromTable :: Maybe TableExpression,
     maybeWhereFilter :: Maybe Expression,
-    orderByItems :: [OrderByItem],
-    groupByExpressions :: [Expression]}
+    maybeGroupByHaving :: Maybe ([Expression], Maybe Expression),
+    orderByItems :: [OrderByItem]}
     deriving (Show, Ord, Eq)
 
 data TableExpression =
@@ -205,16 +205,15 @@ parseSelectBody = do
     -- the from part, can do this by grabing "FROM" first
     maybeFrom <- maybeParseFromPart
     maybeWhere <- maybeParseWherePart
+    groupByExprs <- maybeParseGroupByPart
     orderBy <- parseOrderByPart
-    groupByExprs <- parseGroupByPart
-    
     
     return SelectStatement {
         columnSelections    = columnVals,
         maybeFromTable      = maybeFrom,
         maybeWhereFilter    = maybeWhere,
         orderByItems        = orderBy,
-        groupByExpressions  = groupByExprs}
+        maybeGroupByHaving  = groupByExprs}
     
     where
         maybeParseFromPart =
@@ -258,16 +257,21 @@ parseOrderByPart =
         parseAscending  = parseToken "ASCENDING" <|> parseToken "ASC"
         parseDescending = parseToken "DESCENDING" <|> parseToken "DESC"
 
-parseGroupByPart =
-    ifParseThenElse
-        -- if we see an "ORDER BY"
+maybeParseGroupByPart =
+    ifParseThen
+        -- if we see a "GROUP BY"
         (parseToken "GROUP")
         
         -- then parse the expressions
-        (parseToken "BY" >> sepByAtLeast 1 parseExpression commaSeparator)
-        
-        -- else there is nothing to sort by
-        (return [])
+        (parseToken "BY" >> parseGroupBy)
+    
+    where
+        parseGroupBy = do
+            groupExprs <- atLeastOneExpr
+            maybeHavingExpr <- ifParseThen (parseToken "HAVING") parseExpression
+            return (groupExprs, maybeHavingExpr)
+
+atLeastOneExpr = sepByAtLeast 1 parseExpression commaSeparator
 
 --------------------------------------------------------------------------------
 -- Functions for parsing the column names specified after "SELECT"

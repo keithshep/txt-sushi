@@ -32,7 +32,7 @@ runTxtSushiTests _ _ _ _ = do
                             maybeTableAlias = Nothing}),
                     maybeWhereFilter = Nothing,
                     orderByItems = [],
-                    groupByExpressions = []}
+                    maybeGroupByHaving = Nothing}
         stmt1_1Txt =
             "select table1.col1, table2.* " ++
             "from table1 inner join table2 on table1.col1 = table2.col1"
@@ -66,7 +66,7 @@ runTxtSushiTests _ _ _ _ = do
                                     sqlFunction = SQLFunction {functionName = "LOWER", minArgCount = 1, argCountIsFixed = True},
                                     functionArguments = [ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}]}]}),
                     orderByItems = [],
-                    groupByExpressions = []}
+                    maybeGroupByHaving = Nothing}
         stmt2_1Txt =
             "select table1.col1, table2.* " ++
             "from table1 join table2 on table1.col1 = table2.col1 " ++
@@ -104,7 +104,7 @@ runTxtSushiTests _ _ _ _ = do
                     orderByItems = [OrderByItem {
                         orderExpression = ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "firstName"}},
                         orderAscending = True}],
-                    groupByExpressions = []}
+                    maybeGroupByHaving = Nothing}
         stmt3_1Txt =
             "select table1.col1, table2.* " ++
             "from table1 join table2 on table1.col1 = table2.col1 " ++
@@ -146,7 +146,7 @@ runTxtSushiTests _ _ _ _ = do
                     orderByItems = [OrderByItem {
                         orderExpression = ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "firstName"}},
                         orderAscending = False}],
-                    groupByExpressions = []}
+                    maybeGroupByHaving = Nothing}
         stmt4_1Txt =
             "select table1.col1, table2.* " ++
             "from table1 join table2 on table1.col1 = table2.col1 " ++
