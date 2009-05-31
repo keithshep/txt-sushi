@@ -27,6 +27,15 @@ module Database.TxtSushi.SQLParser (
     withTrailing,
     withoutTrailing,
     
+    -- aggregates
+    avgFunction,
+    countFunction,
+    firstFunction,
+    lastFunction,
+    maxFunction,
+    minFunction,
+    sumFunction,
+    
     -- String SQL function
     concatenateFunction,
     upperFunction,
@@ -407,14 +416,14 @@ parseInt = eatSpacesAfter . try . (withoutTrailing alphaNum) $ do
 -- | returns an int if it can be read from the string
 maybeReadInt :: String -> Maybe Int
 maybeReadInt intStr =
-    case parse (withTrailing eof parseInt) "" intStr of
+    case parse (withTrailing (spaces >> eof) (spaces >> parseInt)) "" intStr of
         Left _      -> Nothing
         Right int   -> Just int
 
 -- | returns a real if it can be read from the string
 maybeReadReal :: String -> Maybe Double
 maybeReadReal realStr =
-    case parse (withTrailing eof parseReal) "" realStr of
+    case parse (withTrailing (spaces >> eof) (spaces >> parseReal)) "" realStr of
         Left _      -> maybeReadInt realStr >>= (\int -> Just $ fromIntegral int)
         Right real  -> Just real
 
@@ -450,8 +459,12 @@ parseNormalFunction sqlFunc = do
     where argSepBy = if argCountIsFixed sqlFunc then sepByExactly else sepByAtLeast
 
 -- Functions with "normal" syntax --
-normalSyntaxFunctions = [upperFunction, lowerFunction, trimFunction]
+normalSyntaxFunctions =
+    [upperFunction, lowerFunction, trimFunction,
+     avgFunction, countFunction, firstFunction, lastFunction, maxFunction,
+     minFunction, sumFunction]
 
+-- non aggregates
 upperFunction = SQLFunction {
     functionName    = "UPPER",
     minArgCount     = 1,
@@ -466,6 +479,42 @@ trimFunction = SQLFunction {
     functionName    = "TRIM",
     minArgCount     = 1,
     argCountIsFixed = True}
+
+-- aggregates
+avgFunction = SQLFunction {
+    functionName    = "AVG",
+    minArgCount     = 1,
+    argCountIsFixed = False}
+
+countFunction = SQLFunction {
+    functionName    = "COUNT",
+    minArgCount     = 1,
+    argCountIsFixed = False}
+
+firstFunction = SQLFunction {
+    functionName    = "FIRST",
+    minArgCount     = 1,
+    argCountIsFixed = False}
+
+lastFunction = SQLFunction {
+    functionName    = "LAST",
+    minArgCount     = 1,
+    argCountIsFixed = False}
+
+maxFunction = SQLFunction {
+    functionName    = "MAX",
+    minArgCount     = 1,
+    argCountIsFixed = False}
+
+minFunction = SQLFunction {
+    functionName    = "MIN",
+    minArgCount     = 1,
+    argCountIsFixed = False}
+
+sumFunction = SQLFunction {
+    functionName    = "SUM",
+    minArgCount     = 1,
+    argCountIsFixed = False}
 
 -- Infix functions --
 infixFunctions =

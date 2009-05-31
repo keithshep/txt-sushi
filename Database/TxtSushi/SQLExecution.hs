@@ -491,7 +491,7 @@ evalAggregateExpression (ColumnExpression col) dbTable =
         Nothing -> error $ "Failed to find column named: " ++ (prettyFormatColumn col)
 
 evalAggregateExpression (FunctionExpression sqlFun funArgs) dbTable =
-    evalSQLFunction sqlFun $ if isAggregate sqlFun then manyArgs else aggregatedArgs
+    evalSQLFunction sqlFun $ if isAggregate then manyArgs else aggregatedArgs
     where
         aggregatedArgs = map (\e -> evalAggregateExpression e dbTable) funArgs
         manyArgs =
@@ -505,7 +505,7 @@ evalAggregateExpression (FunctionExpression sqlFun funArgs) dbTable =
 
         -- | an aggregate function is one whose min function count is 1 and whose
         --   arg count is not fixed
-        isAggregate sqlFun =
+        isAggregate =
             minArgCount sqlFun == 1 && not (argCountIsFixed sqlFun)
 
 -- | evaluate the given expression against a table row
@@ -543,7 +543,9 @@ evalSQLFunction sqlFun evaluatedArgs
     -- negate
     | sqlFun == negateFunction =
         if length evaluatedArgs /= 1 then
-            error "internal error: found a negate function with multiple args"
+            error $
+                "internal error: found a negate function with multiple args. " ++
+                "please report this error"
         else
             let evaldArg = head evaluatedArgs
             in
@@ -568,6 +570,21 @@ evalSQLFunction sqlFun evaluatedArgs
     | sqlFun == andFunction = boolExpression $ (boolValue arg1) && (boolValue arg2)
     | sqlFun == orFunction = boolExpression $ (boolValue arg1) || (boolValue arg2)
     | sqlFun == notFunction = boolExpression $ not (boolValue arg1)
+    
+    -- aggregate
+    | sqlFun == avgFunction =
+        realExpression $ foldl1' (+) (map realValue evaluatedArgs) / (fromIntegral $ length evaluatedArgs)
+    | sqlFun == countFunction = intExpression $ length evaluatedArgs
+    | sqlFun == firstFunction = head evaluatedArgs
+    | sqlFun == lastFunction = last evaluatedArgs
+    | sqlFun == maxFunction = maximum evaluatedArgs
+    | sqlFun == minFunction = minimum evaluatedArgs
+    | sqlFun == sumFunction = algebraWithCoercion (+) (+) evaluatedArgs
+    
+    -- error!!
+    | otherwise = error $
+        "internal error: missing evaluation code for function: " ++
+        functionName sqlFun ++ ". please report this error"
     
     where
         arg1 = head evaluatedArgs
@@ -594,6 +611,44 @@ evalSQLFunction sqlFun evaluatedArgs
                 argsFixed = argCountIsFixed sqlFun
             in
                 argCount == minArgs || (not argsFixed && argCount > minArgs)
+
+{-
+-- aggregates
+avgFunction = SQLFunction {
+    functionName    = "AVG",
+    minArgCount     = 1,
+    argCountIsFixed = True}
+
+countFunction = SQLFunction {
+    functionName    = "COUNT",
+    minArgCount     = 1,
+    argCountIsFixed = True}
+
+firstFunction = SQLFunction {
+    functionName    = "FIRST",
+    minArgCount     = 1,
+    argCountIsFixed = True}
+
+lastFunction = SQLFunction {
+    functionName    = "LAST",
+    minArgCount     = 1,
+    argCountIsFixed = True}
+
+maxFunction = SQLFunction {
+    functionName    = "MAX",
+    minArgCount     = 1,
+    argCountIsFixed = True}
+
+minFunction = SQLFunction {
+    functionName    = "MIN",
+    minArgCount     = 1,
+    argCountIsFixed = True}
+
+sumFunction = SQLFunction {
+    functionName    = "SUM",
+    minArgCount     = 1,
+    argCountIsFixed = True}
+-}
 
 -- | trims leading and trailing spaces
 trimSpace :: String -> String
