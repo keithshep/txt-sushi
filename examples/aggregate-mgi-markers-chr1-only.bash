@@ -13,6 +13,6 @@ wget -q -O - ftp://ftp.informatics.jax.org/pub/reports/MRK_List2.rpt \
 | ../dist/build/tabtocsv/tabtocsv - \
 | ../dist/build/tssql/tssql -table mgi - \
 'select Chr, min(`cM Position` + 0), max(`cM Position` + 0), avg(`cM Position`), count(*)
-from mgi where (Chr = 1 or Chr = 8 or Chr = 7 or Chr = 19) and trim(`cM Position`) <> "N/A" and trim(`cM Position`) <> "syntenic"
-group by Chr order by Chr+0 descending' \
+from mgi where (Chr = 1) and trim(`cM Position`) <> "N/A" and trim(`cM Position`) <> "syntenic"
+order by Chr+0 descending' \
 | ../dist/build/csvtopretty/csvtopretty -

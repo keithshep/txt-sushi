@@ -26,6 +26,8 @@ module Database.TxtSushi.SQLParser (
     SQLFunction(..),
     withTrailing,
     withoutTrailing,
+    isAggregate,
+    selectStatementContainsAggregates,
     
     -- aggregates
     avgFunction,
@@ -148,6 +150,30 @@ data Expression =
         realConstant :: Double}
     deriving (Show, Ord, Eq)
 
+-- | an aggregate function is one whose min function count is 1 and whose
+--   arg count is not fixed
+isAggregate :: SQLFunction -> Bool
+isAggregate sqlFun = minArgCount sqlFun == 1 && not (argCountIsFixed sqlFun)
+
+containsAggregates :: Expression -> Bool
+containsAggregates (FunctionExpression sqlFun args) =
+    isAggregate sqlFun || any containsAggregates args
+containsAggregates _ = False
+
+selectionContainsAggregates :: ColumnSelection -> Bool
+selectionContainsAggregates (ExpressionColumn expr) =
+    containsAggregates expr
+selectionContainsAggregates _ = False
+
+orderByItemContainsAggregates :: OrderByItem -> Bool
+orderByItemContainsAggregates (OrderByItem expr _) =
+    containsAggregates expr
+
+selectStatementContainsAggregates :: SelectStatement -> Bool
+selectStatementContainsAggregates select =
+    any selectionContainsAggregates (columnSelections select) ||
+    any orderByItemContainsAggregates (orderByItems select)
+
 expressionIdentifier :: Expression -> ColumnIdentifier
 expressionIdentifier (FunctionExpression func args) =
     ColumnIdentifier Nothing ((prettyFormatWithArgs func) args)
@@ -173,6 +199,7 @@ prettyFormatWithArgs sqlFunc funcArgs
     | sqlFunc `elem` normalSyntaxFunctions = prettyFormatNormalFunctionExpression sqlFunc funcArgs
     | or (map (sqlFunc `elem`) infixFunctions) = prettyFormatInfixFunctionExpression sqlFunc funcArgs
     | sqlFunc == negateFunction = "-" ++ toArgString (head funcArgs)
+    | sqlFunc == countFunction = functionName countFunction ++ "(*)"
     | sqlFunc == substringFromToFunction ||
       sqlFunc == substringFromFunction ||
       sqlFunc == notFunction =
@@ -390,6 +417,7 @@ parseAnyNonInfixExpression =
     parseNegateFunction <|>
     parseSubstringFunction <|>
     parseNotFunction <|>
+    parseCountStar <|>
     (parseColumnId >>= (\colId -> return $ ColumnExpression colId))
 
 parseStringConstant :: GenParser Char st Expression
@@ -452,8 +480,10 @@ parseAnyNormalFunction =
     let allParsers = map parseNormalFunction normalSyntaxFunctions
     in choice allParsers
 
-parseNormalFunction sqlFunc = do
-    try (parseToken $ functionName sqlFunc)
+parseNormalFunction sqlFunc =
+    try (parseToken $ functionName sqlFunc) >> parseNormalFunctionArgs sqlFunc
+
+parseNormalFunctionArgs sqlFunc = do
     args <- parenthesize $ argSepBy (minArgCount sqlFunc) parseExpression commaSeparator
     return $ FunctionExpression sqlFunc args
     where argSepBy = if argCountIsFixed sqlFunc then sepByExactly else sepByAtLeast
@@ -461,7 +491,8 @@ parseNormalFunction sqlFunc = do
 -- Functions with "normal" syntax --
 normalSyntaxFunctions =
     [upperFunction, lowerFunction, trimFunction,
-     avgFunction, countFunction, firstFunction, lastFunction, maxFunction,
+     -- all aggregates except count which accepts a (*)
+     avgFunction, firstFunction, lastFunction, maxFunction,
      minFunction, sumFunction]
 
 -- non aggregates
@@ -662,6 +693,15 @@ parseNotFunction = do
     parseToken $ functionName notFunction
     expr <- parseAnyNonInfixExpression
     return $ FunctionExpression notFunction [expr]
+
+parseCountStar = do
+    try (parseToken $ functionName countFunction)
+    try parseStar <|> parseNormalFunctionArgs countFunction
+    
+    where
+        parseStar = do
+            parenthesize $ parseToken "*"
+            return $ FunctionExpression countFunction [IntegerConstantExpression 0]
 
 --------------------------------------------------------------------------------
 -- Parse utility functions

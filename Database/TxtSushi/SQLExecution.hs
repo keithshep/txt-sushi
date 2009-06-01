@@ -167,7 +167,11 @@ select selectStatement tableMap =
             Just expr -> filterRowsBy expr fromTbl
     in
         case maybeGroupByHaving selectStatement of
-            Nothing -> finishWithNormalSelect selectStatement filteredTbl
+            Nothing ->
+                if selectStatementContainsAggregates selectStatement then
+                    finishWithAggregateSelect selectStatement [filteredTbl]
+                else
+                    finishWithNormalSelect selectStatement filteredTbl
             Just groupByPart ->
                 let
                     tblGroups = performGroupBy groupByPart filteredTbl
@@ -491,7 +495,7 @@ evalAggregateExpression (ColumnExpression col) dbTable =
         Nothing -> error $ "Failed to find column named: " ++ (prettyFormatColumn col)
 
 evalAggregateExpression (FunctionExpression sqlFun funArgs) dbTable =
-    evalSQLFunction sqlFun $ if isAggregate then manyArgs else aggregatedArgs
+    evalSQLFunction sqlFun $ if isAggregate sqlFun then manyArgs else aggregatedArgs
     where
         aggregatedArgs = map (\e -> evalAggregateExpression e dbTable) funArgs
         manyArgs =
@@ -502,11 +506,6 @@ evalAggregateExpression (FunctionExpression sqlFun funArgs) dbTable =
                 allArgs = concatMap evaluateExprs funArgs
             in
                 allArgs
-
-        -- | an aggregate function is one whose min function count is 1 and whose
-        --   arg count is not fixed
-        isAggregate =
-            minArgCount sqlFun == 1 && not (argCountIsFixed sqlFun)
 
 -- | evaluate the given expression against a table row
 evalExpression :: Expression -> [ColumnIdentifier] -> [EvaluatedExpression] -> EvaluatedExpression
