@@ -1,17 +1,19 @@
 Name:                txt-sushi
-Version:             0.2
+Version:             0.3.0
 Synopsis:            Spreadsheets are databases!
 Description:
     TxtSushi is a collection of command line utilities for processing
     comma-separated and tab-delimited files (AKA flat files, spreadsheets).
+    The most important utility (tssql) lets you perform SQL selects on CSV files.
     By focusing exclusively on processing text files with a tabular structure,
     TxtSushi simplifies common tasks like filtering, joining and transformation
     that would take some effort to accomplish with a more powerful scripting
-    language. TxtSushi's homepage is <http://keithsheppard.name/txt-sushi>.
+    language.
 License:             GPL
 License-File:        COPYING
 Author:              Keith Sheppard
 Maintainer:          keithshep@gmail.com
+Homepage:            http://keithsheppard.name/txt-sushi
 Build-Type:          Simple
 Category:            Database, Utils, Text
 Cabal-Version:       >=1.2
@@ -48,5 +50,18 @@ Executable tabtopretty
 
 Executable namecolumns
   Main-Is:          namecolumns.hs
+  Build-Depends:    base,haskell98,directory,containers
+  GHC-Options:      -O2 -fvia-C
+
+Library
+  Exposed-Modules:
+    Database.TxtSushi.IO
+    Database.TxtSushi.SQLExecution
+    Database.TxtSushi.SQLParser
+    Database.TxtSushi.Transform
+    Database.TxtSushi.Util.CommandLineArgument
+    Database.TxtSushi.Util.IOUtil
+    Database.TxtSushi.Util.ListUtil
+  
   Build-Depends:    base,haskell98,directory,containers
   GHC-Options:      -O2 -fvia-C
