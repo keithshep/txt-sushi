@@ -8,11 +8,13 @@ import Database.TxtSushi.Util.IOUtil
 
 main = do
     args <- getArgs
+    progName <- getProgName
     
     if (length args) /= 1
         then do
             hPutStrLn stderr $
-                    "ERROR: program requires a single command line argument " ++
+                    "ERROR: " ++ progName ++
+                    " requires a single command line argument " ++
                     "(filename or '-')"
             exitFailure
         else do
