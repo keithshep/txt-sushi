@@ -611,44 +611,6 @@ evalSQLFunction sqlFun evaluatedArgs
             in
                 argCount == minArgs || (not argsFixed && argCount > minArgs)
 
-{-
--- aggregates
-avgFunction = SQLFunction {
-    functionName    = "AVG",
-    minArgCount     = 1,
-    argCountIsFixed = True}
-
-countFunction = SQLFunction {
-    functionName    = "COUNT",
-    minArgCount     = 1,
-    argCountIsFixed = True}
-
-firstFunction = SQLFunction {
-    functionName    = "FIRST",
-    minArgCount     = 1,
-    argCountIsFixed = True}
-
-lastFunction = SQLFunction {
-    functionName    = "LAST",
-    minArgCount     = 1,
-    argCountIsFixed = True}
-
-maxFunction = SQLFunction {
-    functionName    = "MAX",
-    minArgCount     = 1,
-    argCountIsFixed = True}
-
-minFunction = SQLFunction {
-    functionName    = "MIN",
-    minArgCount     = 1,
-    argCountIsFixed = True}
-
-sumFunction = SQLFunction {
-    functionName    = "SUM",
-    minArgCount     = 1,
-    argCountIsFixed = True}
--}
-
 -- | trims leading and trailing spaces
 trimSpace :: String -> String
 trimSpace = f . f
