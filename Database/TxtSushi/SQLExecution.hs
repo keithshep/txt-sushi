@@ -38,6 +38,10 @@ data DatabaseTable = DatabaseTable {
 
 emptyTable = DatabaseTable [] []
 
+data GroupedTable = GroupedTable {
+    groupColumnIdentifiers :: [ColumnIdentifier],
+    tableGroups :: [[[EvaluatedExpression]]]}
+
 stringExpression :: String -> EvaluatedExpression
 stringExpression string = EvaluatedExpression {
     preferredType   = StringType,
@@ -169,7 +173,12 @@ select selectStatement tableMap =
         case maybeGroupByHaving selectStatement of
             Nothing ->
                 if selectStatementContainsAggregates selectStatement then
-                    finishWithAggregateSelect selectStatement [filteredTbl]
+                    -- for the case where we find aggregate functions but
+                    -- no "GROUP BY" part, that means we should apply the
+                    -- aggregate to the table as a single group
+                    finishWithAggregateSelect
+                        selectStatement
+                        (GroupedTable (columnIdentifiers filteredTbl) [tableRows filteredTbl])
                 else
                     finishWithNormalSelect selectStatement filteredTbl
             Just groupByPart ->
@@ -188,20 +197,20 @@ finishWithNormalSelect selectStatement filteredDbTable =
 
 finishWithAggregateSelect selectStatement aggregateTbls =
     let
-        orderedTbls = orderTablesBy (orderByItems selectStatement) aggregateTbls
+        orderedTbls = orderGroupsBy (orderByItems selectStatement) aggregateTbls
         selectedTbl =
             evaluateAggregateColumnSelections (columnSelections selectStatement) orderedTbls
     in
         selectedTbl
 
-performGroupBy :: ([Expression], Maybe Expression) -> DatabaseTable -> [DatabaseTable]
+performGroupBy :: ([Expression], Maybe Expression) -> DatabaseTable -> GroupedTable
 performGroupBy (groupByExprs, maybeExpr) dbTable =
     let
         tblGroups = groupRowsBy groupByExprs dbTable
     in
         case maybeExpr of
             Nothing -> tblGroups
-            Just expr -> filterTablesBy expr tblGroups
+            Just expr -> filterGroupsBy expr tblGroups
 
 -- | sorts table rows by the given order by items
 orderRowsBy :: [OrderByItem] -> DatabaseTable -> DatabaseTable
@@ -214,10 +223,15 @@ orderRowsBy orderBys dbTable =
     in
         dbTable {tableRows = sortedRows}
 
-orderTablesBy :: [OrderByItem] -> [DatabaseTable] -> [DatabaseTable]
-orderTablesBy [] dbTables = dbTables
-orderTablesBy orderBys dbTables =
-    sortBy (compareTablesOnOrderItems orderBys) dbTables
+orderGroupsBy :: [OrderByItem] -> GroupedTable -> GroupedTable
+orderGroupsBy [] groupedTable = groupedTable
+orderGroupsBy orderBys groupedTable =
+    let
+        -- curry in the order and col ID params to make a group comparison function
+        compareGroups = compareGroupsOnOrderItems orderBys (groupColumnIdentifiers groupedTable)
+        sortedGroups = sortBy compareGroups (tableGroups groupedTable)
+    in
+        groupedTable {tableGroups = sortedGroups}
 
 -- | Compares two rows using the given OrderByItems and column ID's
 compareRowsOnOrderItems :: [OrderByItem] -> [ColumnIdentifier] -> [EvaluatedExpression] -> [EvaluatedExpression] -> Ordering
@@ -240,24 +254,24 @@ compareRowsOnOrderItem orderBy colIds row1 row2 =
         else
             reverseOrdering rowComp
 
-compareTablesOnOrderItems :: [OrderByItem] -> DatabaseTable -> DatabaseTable -> Ordering
-compareTablesOnOrderItems orderBys dbTable1 dbTable2 =
+compareGroupsOnOrderItems :: [OrderByItem] -> [ColumnIdentifier] -> [[EvaluatedExpression]] -> [[EvaluatedExpression]] -> Ordering
+compareGroupsOnOrderItems orderBys colIds group1 group2 =
     cascadingOrder $ toOrderList orderBys
     where
         toOrderList [] = []
         toOrderList (orderBy:orderByTail) =
-            (compareTablesOnOrderItem orderBy dbTable1 dbTable2):(toOrderList orderByTail)
+            (compareGroupsOnOrderItem orderBy colIds group1 group2):(toOrderList orderByTail)
 
-compareTablesOnOrderItem :: OrderByItem -> DatabaseTable -> DatabaseTable -> Ordering
-compareTablesOnOrderItem orderBy dbTable1 dbTable2 =
+compareGroupsOnOrderItem :: OrderByItem -> [ColumnIdentifier] -> [[EvaluatedExpression]] -> [[EvaluatedExpression]] -> Ordering
+compareGroupsOnOrderItem orderBy colIds group1 group2 =
     let
         orderExpr = orderExpression orderBy
-        rowComp = compareTablesOnExpression orderExpr dbTable1 dbTable2
+        grpComp = compareGroupsOnExpression orderExpr colIds group1 group2
     in
         if orderAscending orderBy then
-            rowComp
+            grpComp
         else
-            reverseOrdering rowComp
+            reverseOrdering grpComp
 
 -- | reverses the given ordering. pretty CRAZY huh???
 reverseOrdering :: Ordering -> Ordering
@@ -283,18 +297,15 @@ compareRowsOnExpression expr colIds row1 row2 =
     in
         row1Eval `compare` row2Eval
 
-compareTablesOnExpression :: Expression -> DatabaseTable -> DatabaseTable -> Ordering
-compareTablesOnExpression expr tbl1 tbl2 =
-    let
-        tbl1Eval = evalAggregateExpression expr tbl1
-        tbl2Eval = evalAggregateExpression expr tbl2
-    in
-        tbl1Eval `compare` tbl2Eval
+compareGroupsOnExpression :: Expression -> [ColumnIdentifier] -> [[EvaluatedExpression]] -> [[EvaluatedExpression]] -> Ordering
+compareGroupsOnExpression expr colIds grp1 grp2 =
+    evalExprOn grp1 `compare` evalExprOn grp2
+    where
+        evalExprOn grp = evalAggregateExpression expr (DatabaseTable colIds grp)
 
-groupRowsBy :: [Expression] -> DatabaseTable -> [DatabaseTable]
+groupRowsBy :: [Expression] -> DatabaseTable -> GroupedTable
 groupRowsBy groupByExprs dbTable =
-    -- create a new table for every row grouping
-    map replaceTableRows rowGroups
+    GroupedTable (columnIdentifiers dbTable) rowGroups
     where
         tblRows = tableRows dbTable
         
@@ -304,7 +315,6 @@ groupRowsBy groupByExprs dbTable =
         
         sortedRows = sortBy compareRows tblRows
         rowGroups = groupBy rowsEq sortedRows
-        replaceTableRows newRows = dbTable {tableRows = newRows}
 
 -- | Evaluate the FROM table part, and returns the FROM table. Also returns
 --   a mapping of new table names from aliases etc.
@@ -411,27 +421,28 @@ tableConcat dbTable1 dbTable2 =
     in
         DatabaseTable concatIds concatRows
 
-evaluateAggregateColumnSelections :: [ColumnSelection] -> [DatabaseTable] -> DatabaseTable
+evaluateAggregateColumnSelections :: [ColumnSelection] -> GroupedTable -> DatabaseTable
 evaluateAggregateColumnSelections colSelections tblGroups =
     let
         selectionTbls = map ($ tblGroups) (map evaluateAggregateColumnSelection colSelections)
     in
         foldl1' tableConcat selectionTbls
 
-evaluateAggregateColumnSelection :: ColumnSelection -> [DatabaseTable] -> DatabaseTable
+evaluateAggregateColumnSelection :: ColumnSelection -> GroupedTable -> DatabaseTable
 evaluateAggregateColumnSelection AllColumns tblGroups =
     error "* is not allowed for aggregate column selections"
 evaluateAggregateColumnSelection (AllColumnsFrom srcTblName) tblGroups =
     error $ srcTblName ++ ".* is not allowed for aggregate column selections"
-evaluateAggregateColumnSelection (ExpressionColumn expr) [] =
-    error $ "internal error: empty aggregate table group"
-evaluateAggregateColumnSelection (ExpressionColumn expr) tblGroups@(headGrp:tailGrp) =
+evaluateAggregateColumnSelection (ExpressionColumn expr) groupedTbl =
     let
-        tblColIds = columnIdentifiers headGrp
+        tblColIds = groupColumnIdentifiers groupedTbl
+        tbls = map makeTbl (tableGroups groupedTbl)
+        evaluatedExprs = map (evalAggregateExpression expr) tbls
         exprColId = expressionIdentifier expr
-        evaluatedExprs = map (evalAggregateExpression expr) tblGroups
     in
         DatabaseTable [exprColId] (transpose [evaluatedExprs])
+    where
+        makeTbl grp = DatabaseTable (groupColumnIdentifiers groupedTbl) grp
 
 evaluateColumnSelection :: ColumnSelection -> DatabaseTable -> DatabaseTable
 evaluateColumnSelection AllColumns dbTable = dbTable
@@ -476,11 +487,13 @@ filterRowsBy filterExpr table =
     where myBoolEvalExpr row =
             boolValue $ evalExpression filterExpr (columnIdentifiers table) row
 
-filterTablesBy :: Expression -> [DatabaseTable] -> [DatabaseTable]
-filterTablesBy expr dbTables =
-    filter filterFunc dbTables
+filterGroupsBy :: Expression -> GroupedTable -> GroupedTable
+filterGroupsBy expr groupedTbl =
+    groupedTbl {tableGroups = map tableRows filteredTbls}
     where
+        makeTbl grp = DatabaseTable (groupColumnIdentifiers groupedTbl) grp
         filterFunc = boolValue . evalAggregateExpression expr
+        filteredTbls = filter filterFunc (map makeTbl (tableGroups groupedTbl))
 
 -- | evaluate the given expression against a table
 --   TODO need better error detection and reporting for non-aggregate
