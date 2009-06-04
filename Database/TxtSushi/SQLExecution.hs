@@ -623,8 +623,8 @@ evalSQLFunction sqlFun evaluatedArgs
                 argsFixed = argCountIsFixed sqlFun
             in
                 argCount == minArgs || (not argsFixed && argCount > minArgs)
-
--- | trims leading and trailing spaces
-trimSpace :: String -> String
-trimSpace = f . f
-   where f = reverse . dropWhile isSpace
+        
+        -- | trims leading and trailing spaces
+        trimSpace :: String -> String
+        trimSpace = f . f
+           where f = reverse . dropWhile isSpace

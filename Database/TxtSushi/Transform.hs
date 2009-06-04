@@ -4,15 +4,11 @@ Simple table transformations
 module Database.TxtSushi.Transform (
     selectColumns,
     sortColumns,
-    fileBasedSortTable,
-    mergeAllBy,
     joinTables,
     joinPresortedTables,
     rowComparison) where
 
 import Data.List
-import System.Directory
-import System.IO
 
 import Database.TxtSushi.IO
 
@@ -40,65 +36,6 @@ rowComparison (columnHead:columnsTail) row1 row2 =
         case colComparison of
             EQ          -> rowComparison columnsTail row1 row2
             otherwise   -> colComparison
-
--- | merge two sorted lists into a single sorted list
-mergeBy comparisonFunction []    list2   = list2
-mergeBy comparisonFunction list1 []      = list1
-mergeBy comparisonFunction list1@(head1:tail1) list2@(head2:tail2) =
-    case head1 `comparisonFunction` head2 of
-        GT          -> (head2:(mergeBy comparisonFunction list1 tail2))
-        otherwise   -> (head1:(mergeBy comparisonFunction tail1 list2))
-
--- | merge the sorted lists in the list to a list about 1/2 the size
-mergePairsBy _ [] = []
-mergePairsBy comparisonFunction singletonListList@(headList:[]) = singletonListList
-mergePairsBy comparisonFunction (list1:list2:listListTail) =
-    let mergedPair = mergeBy comparisonFunction list1 list2
-    in mergedPair:(mergePairsBy comparisonFunction listListTail)
-
--- | merge a list of sorted lists into a single sorted list
-mergeAllBy _ [] = []
-mergeAllBy comparisonFunction listList =
-    let mergedPairs = mergePairsBy comparisonFunction listList
-    in
-        case mergedPairs of
-            singletonListHead:[]    -> singletonListHead
-            otherwise               -> mergeAllBy comparisonFunction mergedPairs
-
-{- |
-perform a table sort using files to keep from holding the whole list in memory
--}
-fileBasedSortTable columns table = do
-    partialSortFiles <- bufferPartialSorts columns table
-    partialSortFileHandles <- (unwrapIOList [openFile file ReadMode | file <- partialSortFiles])
-    partialSortContents <- (unwrapIOList [hGetContents handle | handle <- partialSortFileHandles])
-    let partialSortTables = map (parseTable csvFormat) partialSortContents
-    return (partialSortTables, partialSortFileHandles, partialSortFiles)
-
--- | unwrap a list of 'IO' boxed items
-unwrapIOList [] = do return []
-unwrapIOList (ioHead:ioTail) = do
-    unwrappedHead <- ioHead
-    unwrappedTail <- unwrapIOList ioTail
-    return (unwrappedHead:unwrappedTail)
-
--- | create a list of parial sorts
-bufferPartialSorts columns [] = return []
-bufferPartialSorts columns table = do
-    let rowLimit = 100000
-        (rowsToSortNow, rowsToSortLater) = splitAt rowLimit table
-        sortedRows = sortColumns columns rowsToSortNow
-    sortBuffer <- bufferToTempFile sortedRows
-    otherSortBuffers <- bufferPartialSorts columns rowsToSortLater
-    return (sortBuffer:otherSortBuffers)
-
--- | buffer the table to a temporary file and return a handle to that file
-bufferToTempFile table = do
-    tempDir <- getTemporaryDirectory
-    (tempFilePath, tempFileHandle) <- openTempFile tempDir "buffer.txt"
-    hPutStr tempFileHandle (formatTable csvFormat table)
-    hClose tempFileHandle
-    return tempFilePath
 
 -- | join together two tables on the given column index pairs
 joinTables :: (Ord o) => [(Int, Int)] -> [[o]] -> [[o]] -> [[o]]
