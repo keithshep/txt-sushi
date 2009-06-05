@@ -42,109 +42,106 @@ data GroupedTable = GroupedTable {
     groupColumnIdentifiers :: [ColumnIdentifier],
     tableGroups :: [[[EvaluatedExpression]]]}
 
-stringExpression :: String -> EvaluatedExpression
-stringExpression string = EvaluatedExpression {
-    preferredType   = StringType,
-    maybeIntValue   = maybeReadInt string,
-    maybeRealValue  = maybeReadReal string,
-    stringValue     = string,
-    maybeBoolValue  = Just $
-        (map toLower string /= "false") && (string /= "") && (string /= "0")}
+data EvaluatedExpression =
+    StringExpression    {stringValue :: String} |
+    RealExpression      {realValue :: Double} |
+    IntExpression       {intValue :: Int} |
+    BoolExpression      {boolValue :: Bool}
 
-intExpression int = EvaluatedExpression {
-    preferredType   = IntType,
-    maybeIntValue   = Just int,
-    maybeRealValue  = Just $ fromIntegral int,
-    stringValue     = show int,
-    maybeBoolValue  = Just $ int /= 0}
+instance Eq EvaluatedExpression where
+    -- base equality off of the Ord definition
+    expr1 == expr2 = expr1 `compare` expr2 == EQ
 
-realExpression real = EvaluatedExpression {
-    preferredType   = RealType,
-    maybeIntValue   = Just $ floor real,
-    maybeRealValue  = Just real,
-    stringValue     = show real,
-    maybeBoolValue  = Just $ real /= 0.0}
+instance Ord EvaluatedExpression where
+    compare expr1@(RealExpression r1) expr2 = expr1 `realCompare` expr2
+    compare expr1 expr2@(RealExpression r2) = expr1 `realCompare` expr2
+    
+    compare expr1@(IntExpression i1) expr2 = expr1 `intCompare` expr2
+    compare expr1 expr2@(IntExpression i2) = expr1 `intCompare` expr2
+    
+    compare expr1@(BoolExpression b1) expr2 = expr1 `boolCompare` expr2
+    compare expr1 expr2@(BoolExpression b2) = expr1 `boolCompare` expr2
+    
+    compare expr1 expr2 = expr1 `stringCompare` expr2
 
-boolExpression bool = EvaluatedExpression {
-    preferredType   = BoolType,
-    maybeIntValue   = Nothing,
-    maybeRealValue  = Nothing,
-    stringValue     = show bool,
-    maybeBoolValue  = Just bool}
+realCompare :: EvaluatedExpression -> EvaluatedExpression -> Ordering
+realCompare expr1 expr2 =
+    maybeCoerceReal expr1 `myCompare` maybeCoerceReal expr2
+    where
+        myCompare (Just r1) (Just r2) = r1 `compare` r2
+        myCompare _ _ = expr1 `stringCompare` expr2
 
-intValue :: EvaluatedExpression -> Int
-intValue evalExpr = case maybeIntValue evalExpr of
+intCompare :: EvaluatedExpression -> EvaluatedExpression -> Ordering
+intCompare expr1 expr2 =
+    maybeCoerceInt expr1 `myCompare` maybeCoerceInt expr2
+    where
+        myCompare (Just i1) (Just i2) = i1 `compare` i2
+        myCompare _ _ = expr1 `realCompare` expr2
+
+boolCompare :: EvaluatedExpression -> EvaluatedExpression -> Ordering
+boolCompare expr1 expr2 =
+    maybeCoerceBool expr1 `myCompare` maybeCoerceBool expr2
+    where
+        myCompare (Just b1) (Just b2) = b1 `compare` b2
+        myCompare _ _ = expr1 `stringCompare` expr2
+
+stringCompare :: EvaluatedExpression -> EvaluatedExpression -> Ordering
+stringCompare expr1 expr2 = coerceString expr1 `compare` coerceString expr2
+
+coerceString (StringExpression string)  = string
+coerceString (RealExpression real)      = show real
+coerceString (IntExpression int)        = show int
+coerceString (BoolExpression bool)      = if bool then "true" else "false"
+
+maybeCoerceInt (StringExpression string) = maybeReadInt string
+maybeCoerceInt (RealExpression real)     = Just $ floor real -- TOOD works for negative too?
+maybeCoerceInt (IntExpression int)       = Just int
+maybeCoerceInt (BoolExpression bool)     = Nothing
+
+coerceInt :: EvaluatedExpression -> Int
+coerceInt evalExpr = case maybeCoerceInt evalExpr of
     Just int -> int
     Nothing ->
-        error $ "could not convert \"" ++ (stringValue evalExpr) ++
+        error $ "could not convert \"" ++ (coerceString evalExpr) ++
                 "\" to an integer value"
 
-realValue :: EvaluatedExpression -> Double
-realValue evalExpr = case maybeRealValue evalExpr of
+maybeCoerceReal (StringExpression string) = maybeReadReal string
+maybeCoerceReal (RealExpression real)     = Just real
+maybeCoerceReal (IntExpression int)       = Just $ fromIntegral int
+maybeCoerceReal (BoolExpression bool)     = Nothing
+
+coerceReal :: EvaluatedExpression -> Double
+coerceReal evalExpr = case maybeCoerceReal evalExpr of
     Just real -> real
     Nothing ->
-        error $ "could not convert \"" ++ (stringValue evalExpr) ++
+        error $ "could not convert \"" ++ (coerceString evalExpr) ++
                 "\" to a numeric value"
-
-boolValue :: EvaluatedExpression -> Bool
-boolValue evalExpr = case maybeBoolValue evalExpr of
-    Just bool -> bool
-    Nothing ->
-        error $ "could not convert \"" ++ (stringValue evalExpr) ++
-                "\" to a boolean value"
-
-data ExpressionType = StringType | RealType | IntType | BoolType deriving Eq
-
-data EvaluatedExpression = EvaluatedExpression {
-    preferredType   :: ExpressionType,
-    stringValue     :: String,
-    maybeRealValue  :: Maybe Double,
-    maybeIntValue   :: Maybe Int,
-    maybeBoolValue  :: Maybe Bool}
 
 maybeReadBool :: String -> Maybe Bool
 maybeReadBool boolStr = case map toLower boolStr of
     "true"      -> Just True
-    "1"         -> Just True
-    "1.0"       -> Just True
     "false"     -> Just False
-    "0"         -> Just False
-    "0.0"       -> Just False
     otherwise   -> Nothing
 
-instance Eq EvaluatedExpression where
-    -- base off of the Ord definition
-    expr1 == expr2 = compare expr1 expr2 == EQ
+maybeCoerceBool :: EvaluatedExpression -> Maybe Bool
+maybeCoerceBool (StringExpression string) = do
+    bool <- maybeReadBool string
+    return bool
+maybeCoerceBool (RealExpression real)     = Nothing
+maybeCoerceBool (IntExpression int)       = Nothing
+maybeCoerceBool (BoolExpression bool)     = Just bool
 
-instance Ord EvaluatedExpression where
-    compare expr1 expr2
-        | type1 == RealType || type2 == RealType    = realCompare expr1 expr2
-        | type1 == IntType || type2 == IntType      = intCompare expr1 expr2
-        | type1 == BoolType || type2 == BoolType    = boolCompare expr1 expr2
-        | otherwise                                 = stringCompare expr1 expr2
-        
-        where
-            type1 = preferredType expr1
-            type2 = preferredType expr2
-
-realCompare (EvaluatedExpression _ _ (Just r1) _ _) (EvaluatedExpression _ _ (Just r2) _ _) =
-    compare r1 r2
-realCompare expr1 expr2 = stringCompare expr1 expr2
-
-intCompare (EvaluatedExpression _ _ _ (Just i1) _) (EvaluatedExpression _ _ _ (Just i2) _) =
-    compare i1 i2
-intCompare expr1 expr2 = realCompare expr1 expr2
-
-boolCompare (EvaluatedExpression _ _ _ _ (Just b1)) (EvaluatedExpression _ _ _ _ (Just b2)) =
-    compare b1 b2
-boolCompare expr1 expr2 = stringCompare expr1 expr2
-
-stringCompare expr1 expr2 = stringValue expr1 `compare` stringValue expr2
+coerceBool :: EvaluatedExpression -> Bool
+coerceBool evalExpr = case maybeCoerceBool evalExpr of
+    Just bool -> bool
+    Nothing ->
+        error $ "could not convert \"" ++ (coerceString evalExpr) ++
+                "\" to a boolean value"
 
 -- convert a text table to a database table by using the 1st row as column IDs
 textTableToDatabaseTable :: String -> [[String]] -> DatabaseTable
 textTableToDatabaseTable tableName (headerNames:tblRows) =
-    DatabaseTable (map makeColId headerNames) (map (map stringExpression) tblRows)
+    DatabaseTable (map makeColId headerNames) (map (map StringExpression) tblRows)
     where
         makeColId colName = ColumnIdentifier (Just tableName) colName
 
@@ -152,7 +149,7 @@ databaseTableToTextTable :: DatabaseTable -> [[String]]
 databaseTableToTextTable dbTable =
     let
         headerRow = (map columnId (columnIdentifiers dbTable))
-        tailRows = map (map stringValue) (tableRows dbTable)
+        tailRows = map (map coerceString) (tableRows dbTable)
     in
         headerRow:tailRows
 
@@ -485,23 +482,23 @@ filterRowsBy :: Expression -> DatabaseTable -> DatabaseTable
 filterRowsBy filterExpr table =
     table {tableRows = filter myBoolEvalExpr (tableRows table)}
     where myBoolEvalExpr row =
-            boolValue $ evalExpression filterExpr (columnIdentifiers table) row
+            coerceBool $ evalExpression filterExpr (columnIdentifiers table) row
 
 filterGroupsBy :: Expression -> GroupedTable -> GroupedTable
 filterGroupsBy expr groupedTbl =
     groupedTbl {tableGroups = map tableRows filteredTbls}
     where
         makeTbl grp = DatabaseTable (groupColumnIdentifiers groupedTbl) grp
-        filterFunc = boolValue . evalAggregateExpression expr
+        filterFunc = coerceBool . evalAggregateExpression expr
         filteredTbls = filter filterFunc (map makeTbl (tableGroups groupedTbl))
 
 -- | evaluate the given expression against a table
 --   TODO need better error detection and reporting for non-aggregate
 --   expressions
 evalAggregateExpression :: Expression -> DatabaseTable -> EvaluatedExpression
-evalAggregateExpression (StringConstantExpression string) _ = stringExpression string
-evalAggregateExpression (IntegerConstantExpression int) _   = intExpression int
-evalAggregateExpression (RealConstantExpression real) _     = realExpression real
+evalAggregateExpression (StringConstantExpression string) _ = StringExpression string
+evalAggregateExpression (IntegerConstantExpression int) _   = IntExpression int
+evalAggregateExpression (RealConstantExpression real) _     = RealExpression real
 evalAggregateExpression (ColumnExpression col) dbTable =
     case findIndex (columnMatches col) (columnIdentifiers dbTable) of
         Just colIndex -> (head $ tableRows dbTable) !! colIndex
@@ -522,9 +519,9 @@ evalAggregateExpression (FunctionExpression sqlFun funArgs) dbTable =
 
 -- | evaluate the given expression against a table row
 evalExpression :: Expression -> [ColumnIdentifier] -> [EvaluatedExpression] -> EvaluatedExpression
-evalExpression (StringConstantExpression string) _ _    = stringExpression string
-evalExpression (IntegerConstantExpression int) _ _      = intExpression int
-evalExpression (RealConstantExpression real) _ _        = realExpression real
+evalExpression (StringConstantExpression string) _ _    = StringExpression string
+evalExpression (IntegerConstantExpression int) _ _      = IntExpression int
+evalExpression (RealConstantExpression real) _ _        = RealExpression real
 evalExpression (ColumnExpression col) columnIds tblRow =
     case findIndex (columnMatches col) columnIds of
         Just colIndex -> tblRow !! colIndex
@@ -534,6 +531,7 @@ evalExpression (FunctionExpression sqlFun funArgs) columnIds tblRow =
     where
         evalArgExpr expr = evalExpression expr columnIds tblRow
 
+evalSQLFunction :: SQLFunction -> [EvaluatedExpression] -> EvaluatedExpression
 evalSQLFunction sqlFun evaluatedArgs
     -- Global validation
     -- TODO this error should be more helpful than it is
@@ -542,15 +540,15 @@ evalSQLFunction sqlFun evaluatedArgs
                 " arguments to " ++ functionName sqlFun
     
     -- String functions
-    | sqlFun == upperFunction = stringExpression $ map toUpper (stringValue arg1)
-    | sqlFun == lowerFunction = stringExpression $ map toLower (stringValue arg1)
-    | sqlFun == trimFunction = stringExpression $ trimSpace (stringValue arg1)
-    | sqlFun == concatenateFunction = stringExpression $ concat (map stringValue evaluatedArgs)
+    | sqlFun == upperFunction = StringExpression $ map toUpper (coerceString arg1)
+    | sqlFun == lowerFunction = StringExpression $ map toLower (coerceString arg1)
+    | sqlFun == trimFunction = StringExpression $ trimSpace (coerceString arg1)
+    | sqlFun == concatenateFunction = StringExpression $ concat (map coerceString evaluatedArgs)
     | sqlFun == substringFromToFunction =
-        stringExpression $ take (intValue arg3) (drop (intValue arg2 - 1) (stringValue arg1))
+        StringExpression $ take (coerceInt arg3) (drop (coerceInt arg2 - 1) (coerceString arg1))
     | sqlFun == substringFromFunction =
-        stringExpression $ drop (intValue arg2 - 1) (stringValue arg1)
-    | sqlFun == regexMatchFunction = boolExpression $ (stringValue arg1) =~ (stringValue arg2)
+        StringExpression $ drop (coerceInt arg2 - 1) (coerceString arg1)
+    | sqlFun == regexMatchFunction = BoolExpression $ (coerceString arg1) =~ (coerceString arg2)
     
     -- negate
     | sqlFun == negateFunction =
@@ -562,31 +560,31 @@ evalSQLFunction sqlFun evaluatedArgs
             let evaldArg = head evaluatedArgs
             in
                 if useRealAlgebra evaldArg then
-                    realExpression $ negate (realValue evaldArg)
+                    RealExpression $ negate (coerceReal evaldArg)
                 else
-                    intExpression $ negate (intValue evaldArg)
+                    IntExpression $ negate (coerceInt evaldArg)
     
     -- algebraic
     | sqlFun == multiplyFunction = algebraWithCoercion (*) (*) evaluatedArgs
-    | sqlFun == divideFunction = realExpression $ (realValue arg1) / (realValue arg2)
+    | sqlFun == divideFunction = RealExpression $ (coerceReal arg1) / (coerceReal arg2)
     | sqlFun == plusFunction = algebraWithCoercion (+) (+) evaluatedArgs
     | sqlFun == minusFunction = algebraWithCoercion (-) (-) evaluatedArgs
     
     -- boolean
-    | sqlFun == isFunction = boolExpression (arg1 == arg2)
-    | sqlFun == isNotFunction = boolExpression (arg1 /= arg2)
-    | sqlFun == lessThanFunction = boolExpression (arg1 < arg2)
-    | sqlFun == lessThanOrEqualToFunction = boolExpression (arg1 <= arg2)
-    | sqlFun == greaterThanFunction = boolExpression (arg1 > arg2)
-    | sqlFun == greaterThanOrEqualToFunction = boolExpression (arg1 >= arg2)
-    | sqlFun == andFunction = boolExpression $ (boolValue arg1) && (boolValue arg2)
-    | sqlFun == orFunction = boolExpression $ (boolValue arg1) || (boolValue arg2)
-    | sqlFun == notFunction = boolExpression $ not (boolValue arg1)
+    | sqlFun == isFunction = BoolExpression (arg1 == arg2)
+    | sqlFun == isNotFunction = BoolExpression (arg1 /= arg2)
+    | sqlFun == lessThanFunction = BoolExpression (arg1 < arg2)
+    | sqlFun == lessThanOrEqualToFunction = BoolExpression (arg1 <= arg2)
+    | sqlFun == greaterThanFunction = BoolExpression (arg1 > arg2)
+    | sqlFun == greaterThanOrEqualToFunction = BoolExpression (arg1 >= arg2)
+    | sqlFun == andFunction = BoolExpression $ (coerceBool arg1) && (coerceBool arg2)
+    | sqlFun == orFunction = BoolExpression $ (coerceBool arg1) || (coerceBool arg2)
+    | sqlFun == notFunction = BoolExpression $ not (coerceBool arg1)
     
     -- aggregate
     | sqlFun == avgFunction =
-        realExpression $ foldl1' (+) (map realValue evaluatedArgs) / (fromIntegral $ length evaluatedArgs)
-    | sqlFun == countFunction = intExpression $ length evaluatedArgs
+        RealExpression $ foldl1' (+) (map coerceReal evaluatedArgs) / (fromIntegral $ length evaluatedArgs)
+    | sqlFun == countFunction = IntExpression $ length evaluatedArgs
     | sqlFun == firstFunction = head evaluatedArgs
     | sqlFun == lastFunction = last evaluatedArgs
     | sqlFun == maxFunction = maximum evaluatedArgs
@@ -605,16 +603,14 @@ evalSQLFunction sqlFun evaluatedArgs
         subStringF start extent string = take extent (drop start string)
         algebraWithCoercion intFunc realFunc args =
             if any useRealAlgebra args then
-                realExpression $ foldl1' realFunc (map realValue args)
+                RealExpression $ foldl1' realFunc (map coerceReal args)
             else
-                intExpression $ foldl1' intFunc (map intValue args)
+                IntExpression $ foldl1' intFunc (map coerceInt args)
         
-        useRealAlgebra expr =
-            let
-                prefType = preferredType expr
-                maybeInt = maybeIntValue expr
-            in
-                prefType == RealType || maybeInt == Nothing
+        useRealAlgebra (RealExpression _) = True
+        useRealAlgebra expr = case maybeCoerceInt expr of
+            Nothing -> True
+            Just _  -> False
         
         argCountIsValid =
             let
