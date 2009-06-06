@@ -16,6 +16,8 @@ module Database.TxtSushi.SQLExecution (
     databaseTableToTextTable,
     textTableToDatabaseTable) where
 
+import Algorithms.ExternalSort
+import Data.Binary
 import Data.Char
 import Data.List
 import qualified Data.Map as Map
@@ -46,21 +48,17 @@ data EvaluatedExpression =
     StringExpression    {stringValue :: String} |
     RealExpression      {realValue :: Double} |
     IntExpression       {intValue :: Int} |
-    BoolExpression      {boolValue :: Bool}
-
-instance Eq EvaluatedExpression where
-    -- base equality off of the Ord definition
-    expr1 == expr2 = expr1 `compare` expr2 == EQ
+    BoolExpression      {boolValue :: Bool} deriving Show
 
 instance Ord EvaluatedExpression where
-    compare expr1@(RealExpression r1) expr2 = expr1 `realCompare` expr2
-    compare expr1 expr2@(RealExpression r2) = expr1 `realCompare` expr2
+    compare expr1@(RealExpression _) expr2 = expr1 `realCompare` expr2
+    compare expr1 expr2@(RealExpression _) = expr1 `realCompare` expr2
     
-    compare expr1@(IntExpression i1) expr2 = expr1 `intCompare` expr2
-    compare expr1 expr2@(IntExpression i2) = expr1 `intCompare` expr2
+    compare expr1@(IntExpression _) expr2 = expr1 `intCompare` expr2
+    compare expr1 expr2@(IntExpression _) = expr1 `intCompare` expr2
     
-    compare expr1@(BoolExpression b1) expr2 = expr1 `boolCompare` expr2
-    compare expr1 expr2@(BoolExpression b2) = expr1 `boolCompare` expr2
+    compare expr1@(BoolExpression _) expr2 = expr1 `boolCompare` expr2
+    compare expr1 expr2@(BoolExpression _) = expr1 `boolCompare` expr2
     
     compare expr1 expr2 = expr1 `stringCompare` expr2
 
@@ -88,13 +86,31 @@ boolCompare expr1 expr2 =
 stringCompare :: EvaluatedExpression -> EvaluatedExpression -> Ordering
 stringCompare expr1 expr2 = coerceString expr1 `compare` coerceString expr2
 
+-- base equality off of the Ord definition
+instance Eq EvaluatedExpression where
+    expr1 == expr2 = expr1 `compare` expr2 == EQ
+
+instance Binary EvaluatedExpression where
+    put (StringExpression  s)   = put (0 :: Word8) >> put s
+    put (RealExpression r)      = put (1 :: Word8) >> put r
+    put (IntExpression i)       = put (2 :: Word8) >> put i
+    put (BoolExpression b)      = put (3 :: Word8) >> put b
+    
+    get = do
+        typeWord <- get :: Get Word8
+        case typeWord of
+            0 -> get >>= return . StringExpression
+            1 -> get >>= return . RealExpression
+            2 -> get >>= return . IntExpression
+            3 -> get >>= return . BoolExpression
+
 coerceString (StringExpression string)  = string
 coerceString (RealExpression real)      = show real
 coerceString (IntExpression int)        = show int
 coerceString (BoolExpression bool)      = if bool then "true" else "false"
 
 maybeCoerceInt (StringExpression string) = maybeReadInt string
-maybeCoerceInt (RealExpression real)     = Just $ floor real -- TOOD works for negative too?
+maybeCoerceInt (RealExpression real)     = Just $ floor real -- TOOD: floor OK for negatives too?
 maybeCoerceInt (IntExpression int)       = Just int
 maybeCoerceInt (BoolExpression bool)     = Nothing
 
@@ -118,15 +134,13 @@ coerceReal evalExpr = case maybeCoerceReal evalExpr of
                 "\" to a numeric value"
 
 maybeReadBool :: String -> Maybe Bool
-maybeReadBool boolStr = case map toLower boolStr of
+maybeReadBool boolStr = case map toLower $ trimSpace boolStr of
     "true"      -> Just True
     "false"     -> Just False
     otherwise   -> Nothing
 
 maybeCoerceBool :: EvaluatedExpression -> Maybe Bool
-maybeCoerceBool (StringExpression string) = do
-    bool <- maybeReadBool string
-    return bool
+maybeCoerceBool (StringExpression string) = maybeReadBool string >>= return
 maybeCoerceBool (RealExpression real)     = Nothing
 maybeCoerceBool (IntExpression int)       = Nothing
 maybeCoerceBool (BoolExpression bool)     = Just bool
@@ -583,7 +597,9 @@ evalSQLFunction sqlFun evaluatedArgs
     
     -- aggregate
     | sqlFun == avgFunction =
-        RealExpression $ foldl1' (+) (map coerceReal evaluatedArgs) / (fromIntegral $ length evaluatedArgs)
+        RealExpression $
+            foldl1' (+) (map coerceReal evaluatedArgs) /
+            (fromIntegral $ length evaluatedArgs)
     | sqlFun == countFunction = IntExpression $ length evaluatedArgs
     | sqlFun == firstFunction = head evaluatedArgs
     | sqlFun == lastFunction = last evaluatedArgs
@@ -620,7 +636,7 @@ evalSQLFunction sqlFun evaluatedArgs
             in
                 argCount == minArgs || (not argsFixed && argCount > minArgs)
         
-        -- | trims leading and trailing spaces
-        trimSpace :: String -> String
-        trimSpace = f . f
-           where f = reverse . dropWhile isSpace
+-- | trims leading and trailing spaces
+trimSpace :: String -> String
+trimSpace = f . f
+    where f = reverse . dropWhile isSpace
