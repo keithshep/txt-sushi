@@ -418,16 +418,15 @@ parseAnyNonInfixExpression =
     parseSubstringFunction <|>
     parseNotFunction <|>
     parseCountStar <|>
-    (parseColumnId >>= (\colId -> return $ ColumnExpression colId))
+    (parseColumnId >>= return . ColumnExpression)
 
 parseStringConstant :: GenParser Char st Expression
 parseStringConstant =
     (quotedText True '"' <|> quotedText True '\'') >>=
-    (\txt -> return $ StringConstantExpression txt)
+    (return . StringConstantExpression)
 
 parseIntConstant :: GenParser Char st Expression
-parseIntConstant =
-    parseInt >>= (\int -> return $ IntegerConstantExpression int)
+parseIntConstant = parseInt >>= return . IntegerConstantExpression
 
 parseInt :: GenParser Char st Int
 parseInt = eatSpacesAfter . try . (withoutTrailing alphaNum) $ do
@@ -439,7 +438,7 @@ parseInt = eatSpacesAfter . try . (withoutTrailing alphaNum) $ do
         signedParseTxt = do
             char '-'
             unsignedDigitTxt <- unsignedParseTxt
-            return ('-':unsignedDigitTxt)
+            return $ '-' : unsignedDigitTxt
 
 -- | returns an int if it can be read from the string
 maybeReadInt :: String -> Maybe Int
@@ -772,8 +771,7 @@ parenthesize innerParser = do
 --   successful parser
 eitherParse :: GenParser tok st a -> GenParser tok st b -> GenParser tok st (Either a b)
 eitherParse leftParser rightParser =
-    do {parseResult <- try leftParser; return $ Left parseResult} <|>
-    do {parseResult <- rightParser; return $ Right parseResult}
+    (try leftParser >>= return . Left) <|> (rightParser >>= return . Right)
 
 -- parses 1 or more spaces
 spaces1 = skipMany1 space <?> "whitespace"
@@ -784,7 +782,7 @@ ifParseThen :: GenParser tok st a -> GenParser tok st b -> GenParser tok st (May
 ifParseThen ifParse thenPart = do
     ifResult <- maybeParse ifParse
     case ifResult of
-        Just _ ->   thenPart >>= (\x -> return $ Just x)
+        Just _ ->   thenPart >>= return . Just
         Nothing ->  return Nothing
 
 -- | if ifParse succeeds then parse thenPart otherwise parse elsePart
@@ -795,9 +793,9 @@ ifParseThenElse ifParse thenPart elsePart = do
         Just _ -> thenPart
         Nothing -> elsePart
 
-parseReservedWord = do
+parseReservedWord =
     let reservedWordParsers = map parseToken reservedWords
-    choice reservedWordParsers
+    in  choice reservedWordParsers
 
 -- TODO are function names reserved... i don't think so
 reservedWords =
@@ -831,8 +829,7 @@ genNotFollowedBy theParser = try $ do
 -- | returns Just parseResult if the parse succeeds and Nothing if it fails
 maybeParse :: GenParser tok st a -> GenParser tok st (Maybe a)
 maybeParse parser =
-    (try parser >>= (\x -> return $ Just x)) <|>
-    return Nothing
+    (try parser >>= return . Just) <|> return Nothing
 
 -- | parse `itemParser`s seperated by exactly `minCount` `sepParser`s
 sepByExactly :: Int -> GenParser tok st a -> GenParser tok st sep -> GenParser tok st [a]
@@ -860,5 +857,5 @@ sepByAtLeast minCount itemParser sepParser = do
     minResults <- sepByExactly minCount itemParser sepParser
     ifParseThenElse
         sepParser
-        (sepBy1 itemParser sepParser >>= (\tailResults -> return $ minResults ++ tailResults))
+        (sepBy1 itemParser sepParser >>= return . (minResults ++))
         (return minResults)
