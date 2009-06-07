@@ -549,7 +549,7 @@ evalSQLFunction :: SQLFunction -> [EvaluatedExpression] -> EvaluatedExpression
 evalSQLFunction sqlFun evaluatedArgs
     -- Global validation
     -- TODO this error should be more helpful than it is
-    | not $ argCountIsValid =
+    | argCountIsInvalid =
         error $ "cannot apply " ++ show (length evaluatedArgs) ++
                 " arguments to " ++ functionName sqlFun
     
@@ -628,13 +628,16 @@ evalSQLFunction sqlFun evaluatedArgs
             Nothing -> True
             Just _  -> False
         
-        argCountIsValid =
+        argCountIsInvalid =
             let
+                -- TODO the use of length is bad (unnecessarily traversing
+                -- the entire arg list and keeping it in memory). Redo this
+                -- so that we only check length w.r.t. minArgs
                 argCount = length evaluatedArgs
                 minArgs = minArgCount sqlFun
                 argsFixed = argCountIsFixed sqlFun
             in
-                argCount == minArgs || (not argsFixed && argCount > minArgs)
+                argCount < minArgs || (argCount > minArgs && argsFixed)
         
 -- | trims leading and trailing spaces
 trimSpace :: String -> String
