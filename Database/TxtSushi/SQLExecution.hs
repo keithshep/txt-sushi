@@ -16,7 +16,6 @@ module Database.TxtSushi.SQLExecution (
     databaseTableToTextTable,
     textTableToDatabaseTable) where
 
-import Algorithms.ExternalSort
 import Data.Binary
 import Data.Char
 import Data.List
