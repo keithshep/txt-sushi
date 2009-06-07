@@ -595,6 +595,7 @@ evalSQLFunction sqlFun evaluatedArgs
     | sqlFun == notFunction = BoolExpression $ not (coerceBool arg1)
     
     -- aggregate
+    -- TODO AVG(...) holds the whole arg list in memory. reimplement!
     | sqlFun == avgFunction =
         RealExpression $
             foldl1' (+) (map coerceReal evaluatedArgs) /
