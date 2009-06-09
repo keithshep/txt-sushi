@@ -2,7 +2,6 @@
 Simple table transformations
 -}
 module Database.TxtSushi.Transform (
-    selectColumns,
     sortColumns,
     joinTables,
     joinPresortedTables,
@@ -11,18 +10,6 @@ module Database.TxtSushi.Transform (
 import Data.List
 
 import Database.TxtSushi.IO
-
-{- |
-Create a new table by selecting the given 'columnIndices'
--}
-selectColumns _ [] = []
-selectColumns columnIndices (headRow:tableTail) =
-    ([headRow !! i | i <- columnIndices]):(selectColumns columnIndices tableTail)
-
-removeColumns _ [] = []
-removeColumns columnIndices (headRow:tableTail) =
-    let indexesToSelect = [0 .. ((length headRow) - 1)] \\ columnIndices
-    in ([headRow !! i | i <- indexesToSelect]):(removeColumns columnIndices tableTail)
 
 -- | sort the given 'table' on the given columns
 sortColumns columns table =
