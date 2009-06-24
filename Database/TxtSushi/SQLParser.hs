@@ -103,7 +103,8 @@ data TableExpression =
         rightJoinTable :: TableExpression,
         maybeTableAlias :: Maybe String} |
     SelectExpression {
-        selectExpression :: SelectStatement}
+        selectExpression :: SelectStatement,
+        maybeTableAlias :: Maybe String}
     deriving (Show, Ord, Eq)
 
 -- | convenience function for extracting all of the table names used by the
@@ -348,8 +349,22 @@ parseColumnId = do
 
 parseTableExpression =
     parenthesize parseTableExpression <|>
-    (parseSelectStatement >>= return . SelectExpression) <|>
+    parseSelectExpression <|>
     parseTableIdentifierOrJoin <?> "Table Expression"
+
+parseParenTableExpression = do
+    parenExpr <- parenthesize parseTableExpression
+    maybeAlias <- maybeParse parseTableAlias
+    
+    return $ case maybeAlias of
+        Nothing -> parenExpr
+        Just _  -> parenExpr {maybeTableAlias = maybeAlias}
+
+parseSelectExpression = do
+    selectStmt <- parseSelectStatement
+    maybeAlias <- maybeParse parseTableAlias
+    
+    return $ SelectExpression selectStmt maybeAlias
 
 parseTableIdentifierOrJoin = do
     nextTblId <- parseTableIdentifier
