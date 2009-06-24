@@ -101,7 +101,9 @@ data TableExpression =
     CrossJoin {
         leftJoinTable :: TableExpression,
         rightJoinTable :: TableExpression,
-        maybeTableAlias :: Maybe String}
+        maybeTableAlias :: Maybe String} |
+    SelectExpression {
+        selectExpression :: SelectStatement}
     deriving (Show, Ord, Eq)
 
 -- | convenience function for extracting all of the table names used by the
@@ -344,29 +346,32 @@ parseColumnId = do
 -- Functions for parsing the table part (after "FROM")
 --------------------------------------------------------------------------------
 
-parseTableExpression = do
-    nextTblChunk <- parseNextTblExpChunk
+parseTableExpression =
+    parenthesize parseTableExpression <|>
+    (parseSelectStatement >>= return . SelectExpression) <|>
+    parseTableIdentifierOrJoin <?> "Table Expression"
+
+parseTableIdentifierOrJoin = do
+    nextTblId <- parseTableIdentifier
     
-    let ifInnerJoinParse = ifParseThenElse
-            -- if
-            ((maybeParse $ parseToken "INNER") >> parseToken "JOIN")
-            -- then
-            (parseInnerJoinRemainder nextTblChunk)
-            -- else
-            (return nextTblChunk)
-        
+    let
         ifCrossOrInnerJoinParse = ifParseThenElse
             -- if
-            (parseToken "CROSS" >> parseToken "JOIN")
+            (parseToken "CROSS" >> parseToken "JOIN") -- TODO commit to join
             -- then
-            (parseCrossJoinRemainder nextTblChunk)
+            (parseCrossJoinRemainder nextTblId)
             -- else
             ifInnerJoinParse
     
+        ifInnerJoinParse = ifParseThenElse
+            -- if
+            ((maybeParse $ parseToken "INNER") >> parseToken "JOIN") -- TODO commit to join
+            -- then
+            (parseInnerJoinRemainder nextTblId)
+            -- else
+            (return nextTblId)
+        
     ifCrossOrInnerJoinParse
-
-parseNextTblExpChunk =
-    parenthesize parseTableExpression <|>  parseTableIdentifier
 
 parseInnerJoinRemainder leftTblExpr = do
     rightTblExpr <- parseTableExpression
