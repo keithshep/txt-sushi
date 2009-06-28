@@ -139,7 +139,7 @@ maybeReadBool boolStr = case map toLower $ trimSpace boolStr of
     otherwise   -> Nothing
 
 maybeCoerceBool :: EvaluatedExpression -> Maybe Bool
-maybeCoerceBool (StringExpression string) = maybeReadBool string >>= return
+maybeCoerceBool (StringExpression string) = maybeReadBool string
 maybeCoerceBool (RealExpression real)     = Nothing
 maybeCoerceBool (IntExpression int)       = Nothing
 maybeCoerceBool (BoolExpression bool)     = Just bool
