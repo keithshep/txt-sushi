@@ -49,6 +49,7 @@ data EvaluatedExpression =
     IntExpression       {intValue :: Int} |
     BoolExpression      {boolValue :: Bool} deriving Show
 
+-- order evaluated expressions using our type coercion rules where possible
 instance Ord EvaluatedExpression where
     compare expr1@(RealExpression _) expr2 = expr1 `realCompare` expr2
     compare expr1 expr2@(RealExpression _) = expr1 `realCompare` expr2
@@ -85,7 +86,7 @@ boolCompare expr1 expr2 =
 stringCompare :: EvaluatedExpression -> EvaluatedExpression -> Ordering
 stringCompare expr1 expr2 = coerceString expr1 `compare` coerceString expr2
 
--- base equality off of the Ord definition
+-- base equality off of the Ord definition. pretty simple huh?
 instance Eq EvaluatedExpression where
     expr1 == expr2 = expr1 `compare` expr2 == EQ
 
