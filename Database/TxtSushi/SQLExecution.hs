@@ -22,6 +22,7 @@ import Data.List
 import qualified Data.Map as Map
 import Text.Regex.Posix
 
+import Database.TxtSushi.ExternalSort
 import Database.TxtSushi.SQLParser
 import Database.TxtSushi.Transform
 import Database.TxtSushi.Util.ListUtil
