@@ -27,6 +27,12 @@ import Database.TxtSushi.SQLParser
 import Database.TxtSushi.Transform
 import Database.TxtSushi.Util.ListUtil
 
+-- | We will use the sort configuration to determine whether tables should
+--   be sorted external or in memory
+data SortConfiguration =
+    UseInMemorySort |
+    UseExternalSort deriving Show
+
 -- | an SQL table data structure
 --   TODO: need allColumnsColumnIdentifiers and allColumnsTableRows so that
 --         we can filter and order on columns that are selected out. we also
@@ -37,8 +43,6 @@ data DatabaseTable = DatabaseTable {
     
     -- | the actual table data
     tableRows :: [[EvaluatedExpression]]}
-
-emptyTable = DatabaseTable [] []
 
 data GroupedTable = GroupedTable {
     groupColumnIdentifiers :: [ColumnIdentifier],
@@ -176,7 +180,7 @@ select selectStatement tableMap =
         -- TODO: do we need to care about the updated aliases for filtering
         --       in the "where" part??
         fromTbl = case maybeFromTable selectStatement of
-            Nothing -> emptyTable
+            Nothing -> DatabaseTable [] []
             Just fromTblExpr -> evalTableExpression fromTblExpr tableMap
         filteredTbl = case maybeWhereFilter selectStatement of
             Nothing -> fromTbl

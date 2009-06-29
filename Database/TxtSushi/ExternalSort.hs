@@ -10,22 +10,31 @@ import Data.Binary.Put
 import qualified Data.ByteString.Lazy as BS
 import Data.List
 import System.IO
+import System.IO.Unsafe
 import System.Directory
 
--- | merge two sorted lists into a single sorted list
-mergeBy comparisonFunction []    list2   = list2
-mergeBy comparisonFunction list1 []      = list1
-mergeBy comparisonFunction list1@(head1:tail1) list2@(head2:tail2) =
-    case head1 `comparisonFunction` head2 of
-        GT  -> (head2:(mergeBy comparisonFunction list1 tail2))
-        _   -> (head1:(mergeBy comparisonFunction tail1 list2))
+-- | performs an external sort on the given list
+externalSort :: (Binary b, Ord b) => [b] -> [b]
+externalSort = externalSortBy compare
 
--- | merge the sorted lists in the list to a list about 1/2 the size
-mergePairsBy _ [] = []
-mergePairsBy cmp singletonListList@(headList:[]) = singletonListList
-mergePairsBy cmp (list1:list2:listListTail) =
-    let mergedPair = mergeBy cmp list1 list2
-    in  mergedPair:(mergePairsBy cmp listListTail)
+-- | performs an external sort on the given list using the given comparison
+--   function
+externalSortBy :: (Binary b) => (b -> b -> Ordering) -> [b] -> [b]
+externalSortBy cmp xs = unsafePerformIO $ do
+    partialSortFiles <- bufferPartialSortsBy cmp xs
+    partialSortFileHandles <-
+        unwrapMonadList [openBinaryFile file ReadMode | file <- partialSortFiles]
+    partialSortByteStrs <-
+        unwrapMonadList $ map hGetAllByteStr partialSortFileHandles
+    
+    return $ mergeAllBy cmp (map (map decode) partialSortByteStrs)
+
+-- | unwrap a list of Monad 'boxed' items
+unwrapMonadList [] = do return []
+unwrapMonadList (ioHead:ioTail) = do
+    unwrappedHead <- ioHead
+    unwrappedTail <- unwrapMonadList ioTail
+    return (unwrappedHead:unwrappedTail)
 
 -- | merge a list of sorted lists into a single sorted list
 mergeAllBy :: (a -> a -> Ordering) -> [[a]] -> [a]
@@ -34,27 +43,24 @@ mergeAllBy comparisonFunction listList =
     let mergedPairs = mergePairsBy comparisonFunction listList
     in
         case mergedPairs of
-            singletonListHead:[]    -> singletonListHead
-            _                       -> mergeAllBy comparisonFunction mergedPairs
+            singletonListHead:[] -> singletonListHead
+            _                    -> mergeAllBy comparisonFunction mergedPairs
 
--- | perform a table sort using files to keep from holding the whole list
---   in memory
-externalSortBy :: (Binary b) => (b -> b -> Ordering) -> [b] -> IO [b]
-externalSortBy cmp xs = do
-    partialSortFiles <- bufferPartialSortsBy cmp xs
-    partialSortFileHandles <-
-        unwrapIOList [openBinaryFile file ReadMode | file <- partialSortFiles]
-    partialSortBinStrs <-
-        unwrapIOList $ map hGetAllBinStr partialSortFileHandles
-    
-    return $ mergeAllBy cmp (map (map decode) partialSortBinStrs)
+-- | merge the sorted lists in the list to a list about 1/2 the size
+mergePairsBy _ [] = []
+mergePairsBy cmp singletonListList@(headList:[]) = singletonListList
+mergePairsBy cmp (list1:list2:listListTail) =
+    let mergedPair = mergeBy cmp list1 list2
+    in  mergedPair:(mergePairsBy cmp listListTail)
 
--- | unwrap a list of 'IO' boxed items
-unwrapIOList [] = do return []
-unwrapIOList (ioHead:ioTail) = do
-    unwrappedHead <- ioHead
-    unwrappedTail <- unwrapIOList ioTail
-    return (unwrappedHead:unwrappedTail)
+-- | merge two sorted lists into a single sorted list
+mergeBy :: (a -> a -> Ordering) -> [a] -> [a] -> [a]
+mergeBy comparisonFunction []    list2   = list2
+mergeBy comparisonFunction list1 []      = list1
+mergeBy comparisonFunction list1@(head1:tail1) list2@(head2:tail2) =
+    case head1 `comparisonFunction` head2 of
+        GT  -> (head2:(mergeBy comparisonFunction list1 tail2))
+        _   -> (head1:(mergeBy comparisonFunction tail1 list2))
 
 -- | create a list of parial sorts
 bufferPartialSortsBy cmp [] = return []
@@ -72,33 +78,33 @@ bufferToTempFile [] = return []
 bufferToTempFile xs = do
     tempDir <- getTemporaryDirectory
     (tempFilePath, tempFileHandle) <- openBinaryTempFile tempDir "buffer.txt"
-    hPutAllBinStr tempFileHandle (map encode xs)
+    hPutAllByteStr tempFileHandle (map encode xs)
     hClose tempFileHandle
     return tempFilePath
 
-hPutAllBinStr :: Handle -> [BS.ByteString] -> IO ()
-hPutAllBinStr handle [] = return ()
-hPutAllBinStr handle (binStrHead:binStrTail) =
-    hPutBinStr handle binStrHead >> hPutAllBinStr handle binStrTail
+hPutAllByteStr :: Handle -> [BS.ByteString] -> IO ()
+hPutAllByteStr handle [] = return ()
+hPutAllByteStr handle (byteStrHead:byteStrTail) =
+    hPutByteStr handle byteStrHead >> hPutAllByteStr handle byteStrTail
 
-hPutBinStr :: Handle -> BS.ByteString -> IO ()
-hPutBinStr handle binStr = do
-    let lenPut = putWord32host $ fromIntegral (BS.length binStr)
+hPutByteStr :: Handle -> BS.ByteString -> IO ()
+hPutByteStr handle byteStr = do
+    let lenPut = putWord32host $ fromIntegral (BS.length byteStr)
     BS.hPut handle (runPut lenPut)
-    BS.hPut handle binStr
+    BS.hPut handle byteStr
 
-hGetAllBinStr :: Handle -> IO [BS.ByteString]
-hGetAllBinStr handle = do
+hGetAllByteStr :: Handle -> IO [BS.ByteString]
+hGetAllByteStr handle = do
     eof <- hIsEOF handle
     if eof
         then return []
         else do
-            headBin <- hGetBinStr handle
-            tailBin <- hGetAllBinStr handle
+            headBin <- hGetByteStr handle
+            tailBin <- hGetAllByteStr handle
             return $ headBin:tailBin
 
-hGetBinStr :: Handle -> IO BS.ByteString
-hGetBinStr handle = do
+hGetByteStr :: Handle -> IO BS.ByteString
+hGetByteStr handle = do
     lenStr <- BS.hGet handle 4
     let len = fromIntegral $ runGet getWord32host lenStr :: Int
     BS.hGet handle len
