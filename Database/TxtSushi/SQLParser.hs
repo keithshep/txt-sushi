@@ -103,7 +103,7 @@ data TableExpression =
         rightJoinTable :: TableExpression,
         maybeTableAlias :: Maybe String} |
     SelectExpression {
-        selectExpression :: SelectStatement,
+        selectStatement :: SelectStatement,
         maybeTableAlias :: Maybe String}
     deriving (Show, Ord, Eq)
 
@@ -118,6 +118,8 @@ allTableNames (InnerJoin lftTbl rtTbl _ _) =
     (allTableNames lftTbl) ++ (allTableNames rtTbl)
 allTableNames (CrossJoin lftTbl rtTbl _) =
     (allTableNames lftTbl) ++ (allTableNames rtTbl)
+allTableNames (SelectExpression selectStmt _) =
+    allMaybeTableNames $ maybeFromTable selectStmt
 
 data ColumnSelection =
     AllColumns |
@@ -416,7 +418,7 @@ parseTableIdentifier = do
     maybeAlias <- maybeParse parseTableAlias
     return $ TableIdentifier theId maybeAlias
 
-parseTableAlias = parseToken "AS" >> parseIdentifier
+parseTableAlias = (maybeParse $ parseToken "AS") >> parseIdentifier
 
 --------------------------------------------------------------------------------
 -- Expression parsing: These can be after "SELECT", "WHERE" or "HAVING"

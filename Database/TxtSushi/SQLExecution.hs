@@ -351,6 +351,9 @@ evalTableExpression tblExpr tableMap =
             in
                 maybeRename maybeTblAlias joinedTbl
         
+        SelectExpression selectStmt maybeTblAlias ->
+            maybeRename maybeTblAlias (select selectStmt tableMap)
+        
         -- TODO implement me
         CrossJoin leftJoinTbl maybeTblAlias rightJoinTbl ->
             error "Sorry! CROSS JOIN is not yet implemented"
