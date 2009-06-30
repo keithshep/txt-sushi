@@ -13,6 +13,8 @@ import System.IO
 import System.IO.Unsafe
 import System.Directory
 
+-- TODO configuration based on max bytes and max file merge
+
 -- | performs an external sort on the given list
 externalSort :: (Binary b, Ord b) => [b] -> [b]
 externalSort = externalSortBy compare
@@ -25,9 +27,11 @@ externalSortBy cmp xs = unsafePerformIO $ do
     partialSortFileHandles <-
         unwrapMonadList [openBinaryFile file ReadMode | file <- partialSortFiles]
     partialSortByteStrs <-
-        unwrapMonadList $ map hGetAllByteStr partialSortFileHandles
+        unwrapMonadList $ map BS.hGetContents partialSortFileHandles
     
-    return $ mergeAllBy cmp (map (map decode) partialSortByteStrs)
+    let partialSortBinaries = map decodeAll partialSortByteStrs
+    
+    return $ mergeAllBy cmp partialSortBinaries
 
 -- | unwrap a list of Monad 'boxed' items
 unwrapMonadList [] = do return []
@@ -72,20 +76,32 @@ bufferPartialSortsBy cmp xs = do
     otherSortBuffers <- bufferPartialSortsBy cmp sortLaterList
     return (sortBuffer:otherSortBuffers)
 
--- | buffer the table to a temporary file and return a handle to that file
+-- | buffer the binaries to a temporary file and return a handle to that file
 bufferToTempFile :: (Binary b) => [b] -> IO String
 bufferToTempFile [] = return []
 bufferToTempFile xs = do
     tempDir <- getTemporaryDirectory
     (tempFilePath, tempFileHandle) <- openBinaryTempFile tempDir "buffer.txt"
-    hPutAllByteStr tempFileHandle (map encode xs)
+    BS.hPut tempFileHandle (encodeAll xs)
     hClose tempFileHandle
     return tempFilePath
 
+encodeAll :: (Binary b) => [b] -> BS.ByteString
+encodeAll = BS.concat . map encode
+
+decodeAll :: (Binary b) => BS.ByteString -> [b]
+decodeAll bs
+    | BS.null bs = []
+    | otherwise =
+        let (decodedBin, remainingBs, _) = runGetState get bs 0
+        in  decodedBin : decodeAll remainingBs
+
+{-
 hPutAllByteStr :: Handle -> [BS.ByteString] -> IO ()
 hPutAllByteStr handle [] = return ()
-hPutAllByteStr handle (byteStrHead:byteStrTail) =
-    hPutByteStr handle byteStrHead >> hPutAllByteStr handle byteStrTail
+hPutAllByteStr handle (byteStrHead:byteStrTail) = do
+    hPutByteStr handle byteStrHead
+    hPutAllByteStr handle byteStrTail
 
 hPutByteStr :: Handle -> BS.ByteString -> IO ()
 hPutByteStr handle byteStr = do
@@ -108,3 +124,4 @@ hGetByteStr handle = do
     lenStr <- BS.hGet handle 4
     let len = fromIntegral $ runGet getWord32host lenStr :: Int
     BS.hGet handle len
+-}
