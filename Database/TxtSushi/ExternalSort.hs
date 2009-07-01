@@ -33,7 +33,7 @@ externalSortBy cmp xs = unsafePerformIO $ do
     return $ mergeAllBy cmp partialSortBinaries
 
 -- | unwrap a list of Monad 'boxed' items
-unwrapMonadList [] = do return []
+unwrapMonadList [] = return []
 unwrapMonadList (ioHead:ioTail) = do
     unwrappedHead <- ioHead
     unwrappedTail <- unwrapMonadList ioTail
