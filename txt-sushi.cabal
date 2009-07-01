@@ -67,5 +67,5 @@ Library
     Database.TxtSushi.Util.IOUtil
     Database.TxtSushi.Util.ListUtil
   
-  Build-Depends:    base,binary,containers,directory,parsec,regex-posix
+  Build-Depends:    base,binary,bytestring,containers,directory,parsec,regex-posix
   GHC-Options:      -O2 -fvia-C

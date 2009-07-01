@@ -31,19 +31,26 @@ helpOption = OptionDescription {
     minArgumentCount        = 0,
     argumentCountIsFixed    = True}
 
+externalSortOption = OptionDescription {
+    isRequired              = False,
+    optionFlag              = "-external-sort",
+    argumentNames           = [],
+    minArgumentCount        = 0,
+    argumentCountIsFixed    = True}
+
 tableDefOption = OptionDescription {
     isRequired              = False,
     optionFlag              = "-table",
-    argumentNames           = ["CSV-file-name", "table-name"],
+    argumentNames           = ["CSV_file_name", "table_name"],
     minArgumentCount        = 2,
     argumentCountIsFixed    = True}
 
-turtleSqlOpts = [helpOption, tableDefOption]
+turtleSqlOpts = [helpOption, externalSortOption, tableDefOption]
 
 sqlCmdLine = CommandLineDescription {
     options                     = turtleSqlOpts,
     minTailArgumentCount        = 1,
-    tailArgumentNames           = ["SQL-select-statement"],
+    tailArgumentNames           = ["SQL_select_statement"],
     tailArgumentCountIsFixed    = True}
 
 validateTableNames :: [String] -> [String] -> Bool
@@ -72,6 +79,9 @@ unwrapMapList ((key, value):mapTail) = do
 
 printUsage progName =
     putStrLn $ "Usage: " ++ progName ++ " " ++ formatCommandLine sqlCmdLine
+
+argsToSortConfig argMap =
+    if Map.member externalSortOption argMap then UseExternalSort else UseInMemorySort
 
 main = do
     args <- getArgs
@@ -108,7 +118,8 @@ main = do
                             let unwrappedContentsMap = Map.fromList unwrappedContents
                                 textTableMap = Map.map (parseTable csvFormat) unwrappedContentsMap
                                 dbTableMap = Map.mapWithKey textTableToDatabaseTable textTableMap
-                                selectedDbTable = select selectStmt dbTableMap
+                                sortCfg = argsToSortConfig argMap
+                                selectedDbTable = select sortCfg selectStmt dbTableMap
                                 selectedTxtTable = databaseTableToTextTable selectedDbTable
                             
                             putStr $ formatTable csvFormat selectedTxtTable

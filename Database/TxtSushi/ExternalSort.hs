@@ -30,7 +30,6 @@ externalSortBy cmp xs = unsafePerformIO $ do
         unwrapMonadList $ map BS.hGetContents partialSortFileHandles
     
     let partialSortBinaries = map decodeAll partialSortByteStrs
-    
     return $ mergeAllBy cmp partialSortBinaries
 
 -- | unwrap a list of Monad 'boxed' items
@@ -82,8 +81,10 @@ bufferToTempFile [] = return []
 bufferToTempFile xs = do
     tempDir <- getTemporaryDirectory
     (tempFilePath, tempFileHandle) <- openBinaryTempFile tempDir "buffer.txt"
+    
     BS.hPut tempFileHandle (encodeAll xs)
     hClose tempFileHandle
+    
     return tempFilePath
 
 encodeAll :: (Binary b) => [b] -> BS.ByteString
@@ -95,33 +96,3 @@ decodeAll bs
     | otherwise =
         let (decodedBin, remainingBs, _) = runGetState get bs 0
         in  decodedBin : decodeAll remainingBs
-
-{-
-hPutAllByteStr :: Handle -> [BS.ByteString] -> IO ()
-hPutAllByteStr handle [] = return ()
-hPutAllByteStr handle (byteStrHead:byteStrTail) = do
-    hPutByteStr handle byteStrHead
-    hPutAllByteStr handle byteStrTail
-
-hPutByteStr :: Handle -> BS.ByteString -> IO ()
-hPutByteStr handle byteStr = do
-    let lenPut = putWord32host $ fromIntegral (BS.length byteStr)
-    BS.hPut handle (runPut lenPut)
-    BS.hPut handle byteStr
-
-hGetAllByteStr :: Handle -> IO [BS.ByteString]
-hGetAllByteStr handle = do
-    eof <- hIsEOF handle
-    if eof
-        then return []
-        else do
-            headBin <- hGetByteStr handle
-            tailBin <- hGetAllByteStr handle
-            return $ headBin:tailBin
-
-hGetByteStr :: Handle -> IO BS.ByteString
-hGetByteStr handle = do
-    lenStr <- BS.hGet handle 4
-    let len = fromIntegral $ runGet getWord32host lenStr :: Int
-    BS.hGet handle len
--}

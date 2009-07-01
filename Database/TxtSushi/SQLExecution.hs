@@ -14,7 +14,8 @@
 module Database.TxtSushi.SQLExecution (
     select,
     databaseTableToTextTable,
-    textTableToDatabaseTable) where
+    textTableToDatabaseTable,
+    SortConfiguration(..)) where
 
 import Data.Binary
 import Data.Char
@@ -32,6 +33,10 @@ import Database.TxtSushi.Util.ListUtil
 data SortConfiguration =
     UseInMemorySort |
     UseExternalSort deriving Show
+
+sortByCfg :: (Binary b) => SortConfiguration -> (b -> b -> Ordering) -> [b] -> [b]
+sortByCfg UseInMemorySort = sortBy
+sortByCfg UseExternalSort = externalSortBy
 
 -- | an SQL table data structure
 --   TODO: need allColumnsColumnIdentifiers and allColumnsTableRows so that
@@ -174,14 +179,12 @@ databaseTableToTextTable dbTable =
 
 -- | perform a SQL select with the given select statement on the
 --   given table map
-select :: SelectStatement -> (Map.Map String DatabaseTable) -> DatabaseTable
-select selectStatement tableMap =
+select :: SortConfiguration -> SelectStatement -> (Map.Map String DatabaseTable) -> DatabaseTable
+select sortCfg selectStatement tableMap =
     let
-        -- TODO: do we need to care about the updated aliases for filtering
-        --       in the "where" part??
         fromTbl = case maybeFromTable selectStatement of
             Nothing -> DatabaseTable [] []
-            Just fromTblExpr -> evalTableExpression fromTblExpr tableMap
+            Just fromTblExpr -> evalTableExpression sortCfg fromTblExpr tableMap
         filteredTbl = case maybeWhereFilter selectStatement of
             Nothing -> fromTbl
             Just expr -> filterRowsBy expr fromTbl
@@ -193,59 +196,62 @@ select selectStatement tableMap =
                     -- no "GROUP BY" part, that means we should apply the
                     -- aggregate to the table as a single group
                     finishWithAggregateSelect
+                        sortCfg
                         selectStatement
                         (GroupedTable (columnIdentifiers filteredTbl) [tableRows filteredTbl])
                 else
-                    finishWithNormalSelect selectStatement filteredTbl
+                    finishWithNormalSelect sortCfg selectStatement filteredTbl
             Just groupByPart ->
                 let
-                    tblGroups = performGroupBy groupByPart filteredTbl
+                    tblGroups = performGroupBy sortCfg groupByPart filteredTbl
                 in
-                    finishWithAggregateSelect selectStatement tblGroups
+                    finishWithAggregateSelect sortCfg selectStatement tblGroups
 
-finishWithNormalSelect selectStatement filteredDbTable =
+finishWithNormalSelect sortCfg selectStatement filteredDbTable =
     let
-        orderedTbl = orderRowsBy (orderByItems selectStatement) filteredDbTable
+        orderedTbl =
+            orderRowsBy sortCfg (orderByItems selectStatement) filteredDbTable
         selectedTbl =
             evaluateColumnSelections (columnSelections selectStatement) orderedTbl
     in
         selectedTbl
 
-finishWithAggregateSelect selectStatement aggregateTbls =
+finishWithAggregateSelect sortCfg selectStatement aggregateTbls =
     let
-        orderedTbls = orderGroupsBy (orderByItems selectStatement) aggregateTbls
+        orderedTbls =
+            orderGroupsBy sortCfg (orderByItems selectStatement) aggregateTbls
         selectedTbl =
             evaluateAggregateColumnSelections (columnSelections selectStatement) orderedTbls
     in
         selectedTbl
 
-performGroupBy :: ([Expression], Maybe Expression) -> DatabaseTable -> GroupedTable
-performGroupBy (groupByExprs, maybeExpr) dbTable =
+performGroupBy :: SortConfiguration -> ([Expression], Maybe Expression) -> DatabaseTable -> GroupedTable
+performGroupBy sortCfg (groupByExprs, maybeExpr) dbTable =
     let
-        tblGroups = groupRowsBy groupByExprs dbTable
+        tblGroups = groupRowsBy sortCfg groupByExprs dbTable
     in
         case maybeExpr of
             Nothing -> tblGroups
             Just expr -> filterGroupsBy expr tblGroups
 
 -- | sorts table rows by the given order by items
-orderRowsBy :: [OrderByItem] -> DatabaseTable -> DatabaseTable
-orderRowsBy [] dbTable = dbTable
-orderRowsBy orderBys dbTable =
+orderRowsBy :: SortConfiguration -> [OrderByItem] -> DatabaseTable -> DatabaseTable
+orderRowsBy _ [] dbTable = dbTable
+orderRowsBy sortCfg orderBys dbTable =
     let
         -- curry in the order and col ID params to make a row comparison function
         compareRows = compareRowsOnOrderItems orderBys (columnIdentifiers dbTable)
-        sortedRows = sortBy compareRows (tableRows dbTable)
+        sortedRows = sortByCfg sortCfg compareRows (tableRows dbTable)
     in
         dbTable {tableRows = sortedRows}
 
-orderGroupsBy :: [OrderByItem] -> GroupedTable -> GroupedTable
-orderGroupsBy [] groupedTable = groupedTable
-orderGroupsBy orderBys groupedTable =
+orderGroupsBy :: SortConfiguration -> [OrderByItem] -> GroupedTable -> GroupedTable
+orderGroupsBy _ [] groupedTable = groupedTable
+orderGroupsBy sortCfg orderBys groupedTable =
     let
         -- curry in the order and col ID params to make a group comparison function
         compareGroups = compareGroupsOnOrderItems orderBys (groupColumnIdentifiers groupedTable)
-        sortedGroups = sortBy compareGroups (tableGroups groupedTable)
+        sortedGroups = sortByCfg sortCfg compareGroups (tableGroups groupedTable)
     in
         groupedTable {tableGroups = sortedGroups}
 
@@ -319,8 +325,8 @@ compareGroupsOnExpression expr colIds grp1 grp2 =
     where
         evalExprOn grp = evalAggregateExpression expr (DatabaseTable colIds grp)
 
-groupRowsBy :: [Expression] -> DatabaseTable -> GroupedTable
-groupRowsBy groupByExprs dbTable =
+groupRowsBy :: SortConfiguration -> [Expression] -> DatabaseTable -> GroupedTable
+groupRowsBy sortCfg groupByExprs dbTable =
     GroupedTable (columnIdentifiers dbTable) rowGroups
     where
         tblRows = tableRows dbTable
@@ -329,13 +335,13 @@ groupRowsBy groupByExprs dbTable =
         compareRows = compareRowsOnExpressions groupByExprs (columnIdentifiers dbTable)
         row1 `rowsEq` row2 = (row1 `compareRows` row2) == EQ
         
-        sortedRows = sortBy compareRows tblRows
+        sortedRows = sortByCfg sortCfg compareRows tblRows
         rowGroups = groupBy rowsEq sortedRows
 
 -- | Evaluate the FROM table part, and returns the FROM table. Also returns
 --   a mapping of new table names from aliases etc.
-evalTableExpression :: TableExpression -> (Map.Map String DatabaseTable) -> DatabaseTable
-evalTableExpression tblExpr tableMap =
+evalTableExpression :: SortConfiguration -> TableExpression -> (Map.Map String DatabaseTable) -> DatabaseTable
+evalTableExpression sortCfg tblExpr tableMap =
     case tblExpr of
         TableIdentifier tblName maybeTblAlias ->
             let
@@ -348,8 +354,8 @@ evalTableExpression tblExpr tableMap =
         -- TODO inner join should allow joining on expressions too!!
         InnerJoin leftJoinTblExpr rightJoinTblExpr onConditionExpr maybeTblAlias ->
             let
-                leftJoinTbl = evalTableExpression leftJoinTblExpr tableMap
-                rightJoinTbl = evalTableExpression rightJoinTblExpr tableMap
+                leftJoinTbl = evalTableExpression sortCfg leftJoinTblExpr tableMap
+                rightJoinTbl = evalTableExpression sortCfg rightJoinTblExpr tableMap
                 joinCols = extractJoinCols onConditionExpr
                 joinIndices = joinColumnIndices leftJoinTbl rightJoinTbl joinCols
                 joinedTbl = innerJoin joinIndices leftJoinTbl rightJoinTbl
@@ -357,7 +363,7 @@ evalTableExpression tblExpr tableMap =
                 maybeRename maybeTblAlias joinedTbl
         
         SelectExpression selectStmt maybeTblAlias ->
-            maybeRename maybeTblAlias (select selectStmt tableMap)
+            maybeRename maybeTblAlias (select sortCfg selectStmt tableMap)
         
         -- TODO implement me
         CrossJoin leftJoinTbl maybeTblAlias rightJoinTbl ->
