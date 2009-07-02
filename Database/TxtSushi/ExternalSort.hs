@@ -49,12 +49,27 @@ unwrapMonadList (ioHead:ioTail) = do
 -- | merge a list of sorted lists into a single sorted list
 mergeAllBy :: (a -> a -> Ordering) -> [[a]] -> [a]
 mergeAllBy _ [] = []
-mergeAllBy comparisonFunction listList =
-    let mergedPairs = mergePairsBy comparisonFunction listList
+mergeAllBy cmp listList =
+    let mergedPairs = mergePairsBy cmp listList
     in
         case mergedPairs of
-            singletonListHead:[] -> singletonListHead
-            _                    -> mergeAllBy comparisonFunction mergedPairs
+            [singletonListHead] -> singletonListHead
+            _                   -> mergeAllBy cmp mergedPairs
+
+-- TODO add a smart adjustment bin size so that the last bin will not be like 2
+-- when the others are 16
+
+-- | merge a list of sorted lists into a single sorted list
+mergePartitionsBy :: Int -> (a -> a -> Ordering) -> [[a]] -> [[a]]
+mergePartitionsBy _ _ [] = []
+mergePartitionsBy partitionSize cmp listList =
+    map (mergeAllBy cmp) $ map (partitionList partitionSize) listList
+
+partitionList :: Int -> [a] -> [[a]]
+partitionList _ [] = []
+partitionList partitionSize xs =
+    let (currPartition, otherXs) = splitAt partitionSize xs
+    in  currPartition : partitionList partitionSize otherXs
 
 -- | merge the sorted lists in the list to a list about 1/2 the size
 mergePairsBy _ [] = []
@@ -119,7 +134,7 @@ bufferToTempFile :: (Binary b) => [b] -> IO String
 bufferToTempFile [] = return []
 bufferToTempFile xs = do
     tempDir <- getTemporaryDirectory
-    (tempFilePath, tempFileHandle) <- openBinaryTempFile tempDir "buffer.txt"
+    (tempFilePath, tempFileHandle) <- openBinaryTempFile tempDir "sort.txt"
     
     BS.hPut tempFileHandle (encodeAll xs)
     hClose tempFileHandle
