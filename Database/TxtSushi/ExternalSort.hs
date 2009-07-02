@@ -1,5 +1,6 @@
 module Database.TxtSushi.ExternalSort (
-    externalSortBy) where
+    externalSortBy,
+    externalSortByQuota) where
 
 import Database.TxtSushi.IO
 import Database.TxtSushi.Transform
@@ -7,13 +8,12 @@ import Database.TxtSushi.Transform
 import Data.Binary
 import Data.Binary.Get
 import Data.Binary.Put
+import Data.Int
 import qualified Data.ByteString.Lazy as BS
 import Data.List
 import System.IO
 import System.IO.Unsafe
 import System.Directory
-
--- TODO configuration based on max bytes and max file merge
 
 -- | performs an external sort on the given list
 externalSort :: (Binary b, Ord b) => [b] -> [b]
@@ -22,8 +22,15 @@ externalSort = externalSortBy compare
 -- | performs an external sort on the given list using the given comparison
 --   function
 externalSortBy :: (Binary b) => (b -> b -> Ordering) -> [b] -> [b]
-externalSortBy cmp xs = unsafePerformIO $ do
-    partialSortFiles <- bufferPartialSortsBy cmp xs
+externalSortBy = externalSortByQuota defaultByteQuota
+    -- 128 MB is the default quota
+    where defaultByteQuota = 64 * 1024 * 1024
+
+-- | performs an external sort on the given list using the given comparison
+--   function
+externalSortByQuota :: (Binary b, Integral i) => i -> (b -> b -> Ordering) -> [b] -> [b]
+externalSortByQuota byteQuota cmp xs = unsafePerformIO $ do
+    partialSortFiles <- bufferPartialSortsBy (fromIntegral byteQuota) cmp xs
     partialSortFileHandles <-
         unwrapMonadList [openBinaryFile file ReadMode | file <- partialSortFiles]
     partialSortByteStrs <-
@@ -66,14 +73,46 @@ mergeBy comparisonFunction list1@(head1:tail1) list2@(head2:tail2) =
         _   -> (head1:(mergeBy comparisonFunction tail1 list2))
 
 -- | create a list of parial sorts
-bufferPartialSortsBy cmp [] = return []
-bufferPartialSortsBy cmp xs = do
-    let inMemLimit = 100000
-        (sortNowList, sortLaterList) = splitAt inMemLimit xs
+bufferPartialSortsBy :: (Binary b) => Int64 -> (b -> b -> Ordering) -> [b] -> IO [String]
+bufferPartialSortsBy _ _ [] = return []
+bufferPartialSortsBy byteQuota cmp xs = do
+    let (sortNowList, sortLaterList) = splitAfterQuota byteQuota xs
         sortedRows = sortBy cmp sortNowList
     sortBuffer <- bufferToTempFile sortedRows
-    otherSortBuffers <- bufferPartialSortsBy cmp sortLaterList
+    otherSortBuffers <- bufferPartialSortsBy byteQuota cmp sortLaterList
     return (sortBuffer:otherSortBuffers)
+
+splitAfterQuota :: (Binary b) => Int64 -> [b] -> ([b], [b])
+splitAfterQuota _ [] = ([], [])
+splitAfterQuota quotaInBytes (binaryHead:binaryTail) =
+    let
+        quotaRemaining = quotaInBytes - BS.length (encode binaryHead)
+        (fstBinsTail, sndBins) = splitAfterQuota quotaRemaining binaryTail
+    in
+        if quotaRemaining <= 0
+        then ([binaryHead], binaryTail)
+        else (binaryHead:fstBinsTail, sndBins)
+
+{-
+-- | Encode the given binaries respecting the given byte quota (Well, kind
+--   of respecting. Really we'll probably go over by one element)
+encodeByQuota :: (Binary b, Integral i) => i -> [b] -> (BS.ByteString, [b])
+encodeByQuota byteQuota binaries =
+    let (byteStrings, binsLeft) = go (fromIntegral byteQuota) binaries
+    in  (BS.concat byteStrings, binsLeft)
+    where
+        -- the go function does all of the real work
+        go _ [] = ([], [])
+        go quota (binHead:binTail) =
+            let
+                headByteStr = encode binHead
+                quotaRemaining = quota - BS.length headByteStr
+                (tailByteStrs, binsLeft) = go quotaRemaining binTail
+            in
+                if quotaRemaining >= 0
+                then (headByteStr:tailByteStrs, binsLeft)
+                else ([headByteStr], binTail)
+-}
 
 -- | buffer the binaries to a temporary file and return a handle to that file
 bufferToTempFile :: (Binary b) => [b] -> IO String
