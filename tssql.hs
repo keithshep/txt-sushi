@@ -10,6 +10,7 @@
 --
 -----------------------------------------------------------------------------
 import Data.List
+import Data.Version (Version(..))
 import qualified Data.Map as Map
 import System.Environment
 import System.Exit
@@ -23,6 +24,8 @@ import Database.TxtSushi.SQLParser
 import Database.TxtSushi.Transform
 import Database.TxtSushi.Util.CommandLineArgument
 import Database.TxtSushi.Util.IOUtil
+
+import Paths_txt_sushi
 
 helpOption = OptionDescription {
     isRequired              = False,
@@ -77,8 +80,11 @@ unwrapMapList ((key, value):mapTail) = do
     unwrappedTail <- unwrapMapList mapTail
     return $ (key, unwrappedValue):unwrappedTail
 
-printUsage progName =
+printUsage progName = do
+    putStrLn $ progName ++ " (" ++ versionStr ++ ")"
     putStrLn $ "Usage: " ++ progName ++ " " ++ formatCommandLine sqlCmdLine
+    where
+        versionStr = intercalate "." (map show $ versionBranch version)
 
 argsToSortConfig argMap =
     if Map.member externalSortOption argMap then UseExternalSort else UseInMemorySort
