@@ -32,30 +32,30 @@ Executable tssql
   Main-Is:          tssql.hs
   
   -- creates highly optimized code (slow compile)
-  GHC-Options:      -O2 -fvia-C
+  GHC-Options:      -O2
   
   -- combine the following with the +RTS -xc -RTS runtime option for stack taces
   --GHC-Options:      -prof -auto-all
 
 Executable csvtotab
   Main-Is:          csvtotab.hs
-  GHC-Options:      -O2 -fvia-C
+  GHC-Options:      -O2
 
 Executable tabtocsv
   Main-Is:          tabtocsv.hs
-  GHC-Options:      -O2 -fvia-C
+  GHC-Options:      -O2
 
 Executable csvtopretty
   Main-Is:          csvtopretty.hs
-  GHC-Options:      -O2 -fvia-C
+  GHC-Options:      -O2
 
 Executable tabtopretty
   Main-Is:          tabtopretty.hs
-  GHC-Options:      -O2 -fvia-C
+  GHC-Options:      -O2
 
 Executable namecolumns
   Main-Is:          namecolumns.hs
-  GHC-Options:      -O2 -fvia-C
+  GHC-Options:      -O2
 
 Library
   Exposed-Modules:
@@ -68,4 +68,4 @@ Library
     Database.TxtSushi.Util.ListUtil
   
   Build-Depends:    base,binary,bytestring,containers,directory,parsec,regex-posix
-  GHC-Options:      -O2 -fvia-C
+  GHC-Options:      -O2
