@@ -29,10 +29,10 @@ externalSort = externalSortBy compare
 externalSortBy :: (Binary b) => (b -> b -> Ordering) -> [b] -> [b]
 externalSortBy = externalSortByConstrained defaultByteQuota defaultMaxOpenFiles
 
--- | Currently 8 MB. Don't rely on this value staying the same in future
+-- | Currently 16 MB. Don't rely on this value staying the same in future
 --   releases!
 defaultByteQuota :: (Integral i) => i
-defaultByteQuota = 8 * 1024 * 1024
+defaultByteQuota = 16 * 1024 * 1024
 
 -- | Currently 16 files. Don't rely on this value staying the same in future
 --   releases!
