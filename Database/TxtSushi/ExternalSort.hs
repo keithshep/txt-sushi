@@ -18,7 +18,6 @@ import System.IO
 import System.IO.Unsafe
 import System.Directory
 
-
 -- | performs an external sort on the given list using the default resource
 --   constraints
 externalSort :: (Binary b, Ord b) => [b] -> [b]
@@ -72,7 +71,8 @@ mergeAllBy cmp listList =
 --      be more than 1 element different than the others
 
 -- | partitions the given sorted lists into groupings containing `partitionSize`
---   or fewer lists then merges each of those partitions
+--   or fewer lists then merges each of those partitions. So the returned
+--   list should normally be shorter than the given list
 partitionAndMerge :: Int -> (a -> a -> Ordering) -> [[a]] -> [[a]]
 partitionAndMerge _ _ [] = []
 partitionAndMerge partitionSize cmp listList =
