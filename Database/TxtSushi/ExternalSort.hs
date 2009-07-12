@@ -5,9 +5,7 @@ module Database.TxtSushi.ExternalSort (
     defaultByteQuota,
     defaultMaxOpenFiles) where
 
-import Database.TxtSushi.IO
-import Database.TxtSushi.Transform
-
+import Control.Monad
 import Data.Binary
 import Data.Binary.Get
 import Data.Binary.Put
@@ -17,6 +15,9 @@ import Data.List
 import System.IO
 import System.IO.Unsafe
 import System.Directory
+
+import Database.TxtSushi.IO
+import Database.TxtSushi.Transform
 
 -- | performs an external sort on the given list using the default resource
 --   constraints
@@ -40,6 +41,7 @@ defaultMaxOpenFiles = 8
 
 -- | performs an external sort on the given list using the given resource
 --   constraints
+{-# NOINLINE externalSortByConstrained #-}
 externalSortByConstrained :: (Binary b, Integral i) => i -> i -> (b -> b -> Ordering) -> [b] -> [b]
 externalSortByConstrained byteQuota maxOpenFiles cmp xs = unsafePerformIO $ do
     partialSortFiles <- bufferPartialSortsBy (fromIntegral byteQuota) cmp xs
@@ -50,13 +52,6 @@ externalSortByConstrained byteQuota maxOpenFiles cmp xs = unsafePerformIO $ do
     -- now we must merge together the partial sorts
     --return $ mergeAllBy cmp partialSortBinaries
     externalMergeAllBy (fromIntegral maxOpenFiles) cmp partialSortBinaries
-
--- | unwrap a list of Monad 'boxed' items
-unwrapMonads [] = return []
-unwrapMonads (x:xt) = do
-    unwrappedHead <- x
-    unwrappedTail <- unwrapMonads xt
-    return (unwrappedHead:unwrappedTail)
 
 -- | merge a list of sorted lists into a single sorted list
 mergeAllBy :: (a -> a -> Ordering) -> [[a]] -> [a]
@@ -105,7 +100,7 @@ externalMergeAllBy maxOpenFiles cmp listList = do
     
     -- Stream the results through the file system (we don't want to hold
     -- the results in memory)
-    mergedBuffFiles <- unwrapMonads $ map bufferToTempFile mergedPartitions
+    mergedBuffFiles <- sequence $ map bufferToTempFile mergedPartitions
     mergedByteStrs <- readBinFiles mergedBuffFiles
     let mergedBinaries = map decodeAll mergedByteStrs
     
@@ -140,8 +135,8 @@ splitAfterQuota quotaInBytes (binaryHead:binaryTail) =
 -- | lazily reads the given binary files
 readBinFiles :: [String] -> IO [BS.ByteString]
 readBinFiles fileNames = do
-    fileHandles <- unwrapMonads [openBinaryFile file ReadMode | file <- fileNames]
-    byteStrs <- unwrapMonads $ map BS.hGetContents fileHandles
+    fileHandles <- sequence [openBinaryFile file ReadMode | file <- fileNames]
+    byteStrs <- sequence $ map BS.hGetContents fileHandles
     return byteStrs
 
 -- | buffer the binaries to a temporary file and return a handle to that file
