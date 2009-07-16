@@ -124,7 +124,9 @@ allTableNames (SelectExpression selectStmt _) =
 data ColumnSelection =
     AllColumns |
     AllColumnsFrom {sourceTableName :: String} |
-    ExpressionColumn {expression :: Expression}
+    ExpressionColumn {
+        expression :: Expression,
+        maybeColumnAlias :: Maybe String}
     --QualifiedColumn {
     --    qualifiedColumnId :: ColumnIdentifier}
     deriving (Show, Ord, Eq)
@@ -166,7 +168,7 @@ containsAggregates (FunctionExpression sqlFun args) =
 containsAggregates _ = False
 
 selectionContainsAggregates :: ColumnSelection -> Bool
-selectionContainsAggregates (ExpressionColumn expr) =
+selectionContainsAggregates (ExpressionColumn expr _) =
     containsAggregates expr
 selectionContainsAggregates _ = False
 
@@ -332,7 +334,11 @@ parseAllColsFromTbl = do
     
     return $ AllColumnsFrom tableVal
 
-parseColExpression = parseExpression >>= \expr -> return $ ExpressionColumn expr
+parseColExpression = do
+    expr <- parseExpression
+    maybeAlias <- maybeParseAlias
+    
+    return $ ExpressionColumn expr maybeAlias
 
 parseColumnId = do
     firstId <- parseIdentifier
@@ -356,7 +362,7 @@ parseTableExpression =
 
 parseParenTableExpression = do
     parenExpr <- parenthesize parseTableExpression
-    maybeAlias <- maybeParse parseTableAlias
+    maybeAlias <- maybeParseAlias
     
     return $ case maybeAlias of
         Nothing -> parenExpr
@@ -364,7 +370,7 @@ parseParenTableExpression = do
 
 parseSelectExpression = do
     selectStmt <- parseSelectStatement
-    maybeAlias <- maybeParse parseTableAlias
+    maybeAlias <- maybeParseAlias
     
     return $ SelectExpression selectStmt maybeAlias
 
@@ -396,7 +402,7 @@ parseInnerJoinRemainder leftTblExpr = do
     parseToken "ON"
     onPart <- parseExpression
     
-    maybeAlias <- maybeParse parseTableAlias
+    maybeAlias <- maybeParseAlias
     
     return InnerJoin {
             leftJoinTable=leftTblExpr,
@@ -406,7 +412,7 @@ parseInnerJoinRemainder leftTblExpr = do
 
 parseCrossJoinRemainder leftTblExpr = do
     rightTblExpr <- parseTableExpression
-    maybeAlias <- maybeParse parseTableAlias
+    maybeAlias <- maybeParseAlias
     
     return CrossJoin {
             leftJoinTable=leftTblExpr,
@@ -415,10 +421,10 @@ parseCrossJoinRemainder leftTblExpr = do
 
 parseTableIdentifier = do
     theId <- parseIdentifier
-    maybeAlias <- maybeParse parseTableAlias
+    maybeAlias <- maybeParseAlias
     return $ TableIdentifier theId maybeAlias
 
-parseTableAlias = (maybeParse $ parseToken "AS") >> parseIdentifier
+maybeParseAlias = ifParseThen (parseToken "AS") parseIdentifier
 
 --------------------------------------------------------------------------------
 -- Expression parsing: These can be after "SELECT", "WHERE" or "HAVING"
