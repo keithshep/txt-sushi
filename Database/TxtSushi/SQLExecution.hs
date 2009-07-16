@@ -458,12 +458,14 @@ evaluateAggregateColumnSelection AllColumns tblGroups =
     error "* is not allowed for aggregate column selections"
 evaluateAggregateColumnSelection (AllColumnsFrom srcTblName) tblGroups =
     error $ srcTblName ++ ".* is not allowed for aggregate column selections"
-evaluateAggregateColumnSelection (ExpressionColumn expr) groupedTbl =
+evaluateAggregateColumnSelection (ExpressionColumn expr maybeAlias) groupedTbl =
     let
         tblColIds = groupColumnIdentifiers groupedTbl
         tbls = map makeTbl (tableGroups groupedTbl)
         evaluatedExprs = map (evalAggregateExpression expr) tbls
-        exprColId = expressionIdentifier expr
+        exprColId = case maybeAlias of
+            Nothing     -> expressionIdentifier expr
+            Just alias  -> (expressionIdentifier expr) {columnId = alias}
     in
         DatabaseTable [exprColId] (transpose [evaluatedExprs])
     where
@@ -483,10 +485,12 @@ evaluateColumnSelection (AllColumnsFrom srcTblName) dbTable =
         matchesSrcTblName Nothing           = False
         matchesSrcTblName (Just tblName)    = tblName == srcTblName
         selectIndices indices xs = [xs !! i | i <- indices]
-evaluateColumnSelection (ExpressionColumn expr) dbTable =
+evaluateColumnSelection (ExpressionColumn expr maybeAlias) dbTable =
     let
         tblColIds = columnIdentifiers dbTable
-        exprColId = expressionIdentifier expr
+        exprColId = case maybeAlias of
+            Nothing     -> expressionIdentifier expr
+            Just alias  -> (expressionIdentifier expr) {columnId = alias}
         evaluatedExprs = map (evalExpression expr tblColIds) (tableRows dbTable)
     in
         DatabaseTable [exprColId] (transpose [evaluatedExprs])
