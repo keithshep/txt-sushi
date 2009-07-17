@@ -582,19 +582,9 @@ evalSQLFunction sqlFun evaluatedArgs
         StringExpression $ drop (coerceInt arg2 - 1) (coerceString arg1)
     | sqlFun == regexMatchFunction = BoolExpression $ (coerceString arg1) =~ (coerceString arg2)
     
-    -- negate
-    | sqlFun == negateFunction =
-        if length evaluatedArgs /= 1 then
-            error $
-                "internal error: found a negate function with multiple args. " ++
-                "please report this error"
-        else
-            let evaldArg = head evaluatedArgs
-            in
-                if useRealAlgebra evaldArg then
-                    RealExpression $ negate (coerceReal evaldArg)
-                else
-                    IntExpression $ negate (coerceInt evaldArg)
+    -- unary functions
+    | sqlFun == absFunction = evalUnaryAlgebra abs abs
+    | sqlFun == negateFunction = evalUnaryAlgebra negate negate
     
     -- algebraic
     | sqlFun == multiplyFunction = algebraWithCoercion (*) (*) evaluatedArgs
@@ -658,6 +648,17 @@ evalSQLFunction sqlFun evaluatedArgs
             in
                 argCount < minArgs || (argCount > minArgs && argsFixed)
         
+        evalUnaryAlgebra intFunc realFunc =
+            if length evaluatedArgs /= 1 then
+                error $
+                    "internal error: found a " ++ show sqlFun ++
+                    " function with multiple args. please report this error"
+            else
+                if useRealAlgebra arg1 then
+                    RealExpression $ realFunc (coerceReal arg1)
+                else
+                    IntExpression $ intFunc (coerceInt arg1)
+
 -- | trims leading and trailing spaces
 trimSpace :: String -> String
 trimSpace = f . f

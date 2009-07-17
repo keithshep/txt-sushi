@@ -40,6 +40,7 @@ module Database.TxtSushi.SQLParser (
     
     -- String SQL function
     concatenateFunction,
+    absFunction,
     upperFunction,
     lowerFunction,
     trimFunction,
@@ -517,12 +518,17 @@ parseNormalFunctionArgs sqlFunc = do
 
 -- Functions with "normal" syntax --
 normalSyntaxFunctions =
-    [upperFunction, lowerFunction, trimFunction,
+    [absFunction, upperFunction, lowerFunction, trimFunction,
      -- all aggregates except count which accepts a (*)
      avgFunction, firstFunction, lastFunction, maxFunction,
      minFunction, sumFunction]
 
 -- non aggregates
+absFunction = SQLFunction {
+    functionName    = "ABS",
+    minArgCount     = 1,
+    argCountIsFixed = True}
+
 upperFunction = SQLFunction {
     functionName    = "UPPER",
     minArgCount     = 1,
