@@ -489,18 +489,27 @@ parseRealConstant =
 
 parseReal :: GenParser Char st Double
 parseReal = eatSpacesAfter . try . (withoutTrailing alphaNum) $ do
-    realTxt <- anyParseTxt
+    realTxt <- anyParseTxt <?> "real"
     return $ read realTxt
     where
-        anyParseTxt = signedParseTxt <|> unsignedParseTxt <?> "real"
-        unsignedParseTxt = do
+        anyParseTxt = do
+            txtWithoutExp <- txtWithoutExponent
+            expPart <- try exponentPart <|> return ""
+            return $ txtWithoutExp ++ expPart
+        exponentPart = do
+            e <- (char 'e' <|> char 'E')
+            negPart <- (char '-' >> return "-") <|> return ""
+            numPart <- many1 digit
+            return $ (e:negPart) ++ numPart
+        txtWithoutExponent = signedTxt <|> unsignedTxt <?> "real"
+        unsignedTxt = do
             intTxt <- many1 digit
             char '.'
             fracTxt <- many1 digit
             return $ intTxt ++ "." ++ fracTxt
-        signedParseTxt = do
+        signedTxt = do
             char '-'
-            unsignedDigitTxt <- unsignedParseTxt
+            unsignedDigitTxt <- unsignedTxt
             return ('-':unsignedDigitTxt)
 
 parseAnyNormalFunction :: GenParser Char st Expression
