@@ -30,8 +30,6 @@ Source-Repository this
 
 Executable tssql
   Main-Is:          tssql.hs
-  
-  -- creates highly optimized code (slow compile)
   GHC-Options:      -O2
   
   -- combine the following with the +RTS -xc -RTS runtime option for stack taces
