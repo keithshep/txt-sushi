@@ -185,9 +185,11 @@ select sortCfg selectStatement tableMap =
         fromTbl = case maybeFromTable selectStatement of
             Nothing -> DatabaseTable [] []
             Just fromTblExpr -> evalTableExpression sortCfg fromTblExpr tableMap
+        fromTblWithAliases =
+            appendAliasColumns (columnSelections selectStatement) fromTbl
         filteredTbl = case maybeWhereFilter selectStatement of
-            Nothing -> fromTbl
-            Just expr -> filterRowsBy expr fromTbl
+            Nothing -> fromTblWithAliases
+            Just expr -> filterRowsBy expr fromTblWithAliases
     in
         case maybeGroupByHaving selectStatement of
             Nothing ->
@@ -206,6 +208,30 @@ select sortCfg selectStatement tableMap =
                     tblGroups = performGroupBy sortCfg groupByPart filteredTbl
                 in
                     finishWithAggregateSelect sortCfg selectStatement tblGroups
+
+-- TODO this approach wont let you refer to an alias in the column selection
+appendAliasColumns :: [ColumnSelection] -> DatabaseTable -> DatabaseTable
+appendAliasColumns [] dbTable = dbTable
+appendAliasColumns cols dbTable@(DatabaseTable colIds tblRows) =
+    let colAliasExprs = extractColumnAliases cols
+        -- TODO which is the right fold here?
+        evaluatedColExprsTbl = foldl1' tableConcat (evalAliasCols colAliasExprs)
+    in
+        if null colAliasExprs
+        then dbTable
+        else dbTable `tableConcat` evaluatedColExprsTbl
+    where
+        evalAliasCols :: [(ColumnIdentifier, Expression)] -> [DatabaseTable]
+        evalAliasCols [] = []
+        evalAliasCols ((aliasColId, aliasExpr) : tailAliasExprs) =
+            DatabaseTable [aliasColId] [[evalExpression aliasExpr colIds row] | row <- tblRows] :
+            evalAliasCols tailAliasExprs
+
+extractColumnAliases :: [ColumnSelection] -> [(ColumnIdentifier, Expression)]
+extractColumnAliases [] = []
+extractColumnAliases ((ExpressionColumn expr (Just alias)) : colsTail) =
+    (ColumnIdentifier Nothing alias, expr) : extractColumnAliases colsTail
+extractColumnAliases (headCol:tailCols) = extractColumnAliases tailCols
 
 finishWithNormalSelect sortCfg selectStatement filteredDbTable =
     let
