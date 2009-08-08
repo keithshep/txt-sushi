@@ -771,7 +771,8 @@ parseToken tokStr =
     eatSpacesAfter (try $ if endsWithOp tokStr then parseOpTok else parseAlphaNumTok)
     where
         parseOpTok = withoutTrailing parseOpChar (string tokStr)
-        parseAlphaNumTok = withoutTrailing alphaNum (upperOrLower tokStr)
+        parseAlphaNumTok =
+            withoutTrailing (alphaNum <|> char '_') (upperOrLower tokStr)
 
 -- | parses an identifier. you can use a tick '`' as a quote for
 --   an identifier with white-space
