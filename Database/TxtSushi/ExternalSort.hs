@@ -8,16 +8,12 @@ module Database.TxtSushi.ExternalSort (
 import Control.Monad
 import Data.Binary
 import Data.Binary.Get
-import Data.Binary.Put
 import Data.Int
 import qualified Data.ByteString.Lazy as BS
 import Data.List
 import System.IO
 import System.IO.Unsafe
 import System.Directory
-
-import Database.TxtSushi.IO
-import Database.TxtSushi.Transform
 
 -- | performs an external sort on the given list using the default resource
 --   constraints
@@ -31,12 +27,12 @@ externalSortBy = externalSortByConstrained defaultByteQuota defaultMaxOpenFiles
 
 -- | Currently 16 MB. Don't rely on this value staying the same in future
 --   releases!
-defaultByteQuota :: (Integral i) => i
+defaultByteQuota :: Int
 defaultByteQuota = 16 * 1024 * 1024
 
 -- | Currently 16 files. Don't rely on this value staying the same in future
 --   releases!
-defaultMaxOpenFiles :: (Integral i) => i
+defaultMaxOpenFiles :: Int
 defaultMaxOpenFiles = 8
 
 -- | performs an external sort on the given list using the given resource
@@ -82,8 +78,8 @@ regularPartitions partitionSize xs =
 
 -- | merge two sorted lists into a single sorted list
 mergeBy :: (a -> a -> Ordering) -> [a] -> [a] -> [a]
-mergeBy comparisonFunction []    list2   = list2
-mergeBy comparisonFunction list1 []      = list1
+mergeBy _ []    list2   = list2
+mergeBy _ list1 []      = list1
 mergeBy comparisonFunction list1@(head1:tail1) list2@(head2:tail2) =
     case head1 `comparisonFunction` head2 of
         GT  -> (head2:(mergeBy comparisonFunction list1 tail2))

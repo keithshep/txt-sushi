@@ -21,12 +21,12 @@ import Text.ParserCombinators.Parsec
 import Database.TxtSushi.IO
 import Database.TxtSushi.SQLExecution
 import Database.TxtSushi.SQLParser
-import Database.TxtSushi.Transform
 import Database.TxtSushi.Util.CommandLineArgument
 import Database.TxtSushi.Util.IOUtil
 
 import Paths_txt_sushi
 
+helpOption :: OptionDescription
 helpOption = OptionDescription {
     isRequired              = False,
     optionFlag              = "-help",
@@ -34,6 +34,7 @@ helpOption = OptionDescription {
     minArgumentCount        = 0,
     argumentCountIsFixed    = True}
 
+externalSortOption :: OptionDescription
 externalSortOption = OptionDescription {
     isRequired              = False,
     optionFlag              = "-external-sort",
@@ -41,6 +42,7 @@ externalSortOption = OptionDescription {
     minArgumentCount        = 0,
     argumentCountIsFixed    = True}
 
+tableDefOption :: OptionDescription
 tableDefOption = OptionDescription {
     isRequired              = False,
     optionFlag              = "-table",
@@ -48,10 +50,12 @@ tableDefOption = OptionDescription {
     minArgumentCount        = 2,
     argumentCountIsFixed    = True}
 
-turtleSqlOpts = [helpOption, externalSortOption, tableDefOption]
+allOpts :: [OptionDescription]
+allOpts = [helpOption, externalSortOption, tableDefOption]
 
+sqlCmdLine :: CommandLineDescription
 sqlCmdLine = CommandLineDescription {
-    options                     = turtleSqlOpts,
+    options                     = allOpts,
     minTailArgumentCount        = 1,
     tailArgumentNames           = ["SQL_select_statement"],
     tailArgumentCountIsFixed    = True}
@@ -65,30 +69,35 @@ validateTableNames (argTblHead:argTblTail) selectTbls =
         error $ "The given table name \"" ++ argTblHead ++
                 "\" does not appear in the SELECT statement"
 
+tableArgsToMap :: [[String]] -> Map.Map String String
 tableArgsToMap [] = Map.empty
 tableArgsToMap (currTableArgs:tailTableArgs) =
     case currTableArgs of
-        [fileName, tableName] ->
-            Map.insert fileName tableName (tableArgsToMap tailTableArgs)
-        otherwise ->
+        [fileName, tblName] ->
+            Map.insert fileName tblName (tableArgsToMap tailTableArgs)
+        _ ->
             error $ "the \"" ++ (optionFlag tableDefOption) ++
                     "\" option should have exactly two arguments"
 
+unwrapMapList :: (Monad m) => [(t, m t1)] -> m [(t, t1)]
 unwrapMapList [] = return []
 unwrapMapList ((key, value):mapTail) = do
     unwrappedValue <- value
     unwrappedTail <- unwrapMapList mapTail
     return $ (key, unwrappedValue):unwrappedTail
 
+printUsage :: String -> IO ()
 printUsage progName = do
     putStrLn $ progName ++ " (" ++ versionStr ++ ")"
     putStrLn $ "Usage: " ++ progName ++ " " ++ formatCommandLine sqlCmdLine
     where
         versionStr = intercalate "." (map show $ versionBranch version)
 
+argsToSortConfig :: Map.Map OptionDescription a -> SortConfiguration
 argsToSortConfig argMap =
     if Map.member externalSortOption argMap then UseExternalSort else UseInMemorySort
 
+main :: IO ()
 main = do
     args <- getArgs
     progName <- getProgName

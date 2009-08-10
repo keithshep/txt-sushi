@@ -54,10 +54,10 @@ data GroupedTable = GroupedTable {
     tableGroups :: [[[EvaluatedExpression]]]}
 
 data EvaluatedExpression =
-    StringExpression    {stringValue :: String} |
-    RealExpression      {realValue :: Double} |
-    IntExpression       {intValue :: Int} |
-    BoolExpression      {boolValue :: Bool} deriving Show
+    StringExpression    String |
+    RealExpression      Double |
+    IntExpression       Int |
+    BoolExpression      Bool deriving Show
 
 -- order evaluated expressions using our type coercion rules where possible
 instance Ord EvaluatedExpression where
@@ -113,16 +113,19 @@ instance Binary EvaluatedExpression where
             1 -> get >>= return . RealExpression
             2 -> get >>= return . IntExpression
             3 -> get >>= return . BoolExpression
+            _ -> error $ "unexpected type word value: " ++ show typeWord
 
+coerceString :: EvaluatedExpression -> String
 coerceString (StringExpression string)  = string
 coerceString (RealExpression real)      = show real
 coerceString (IntExpression int)        = show int
 coerceString (BoolExpression bool)      = if bool then "true" else "false"
 
+maybeCoerceInt :: EvaluatedExpression -> Maybe Int
 maybeCoerceInt (StringExpression string) = maybeReadInt string
 maybeCoerceInt (RealExpression real)     = Just $ floor real -- TOOD: floor OK for negatives too?
 maybeCoerceInt (IntExpression int)       = Just int
-maybeCoerceInt (BoolExpression bool)     = Nothing
+maybeCoerceInt (BoolExpression _)        = Nothing
 
 coerceInt :: EvaluatedExpression -> Int
 coerceInt evalExpr = case maybeCoerceInt evalExpr of
@@ -131,10 +134,11 @@ coerceInt evalExpr = case maybeCoerceInt evalExpr of
         error $ "could not convert \"" ++ (coerceString evalExpr) ++
                 "\" to an integer value"
 
+maybeCoerceReal :: EvaluatedExpression -> Maybe Double
 maybeCoerceReal (StringExpression string) = maybeReadReal string
 maybeCoerceReal (RealExpression real)     = Just real
 maybeCoerceReal (IntExpression int)       = Just $ fromIntegral int
-maybeCoerceReal (BoolExpression bool)     = Nothing
+maybeCoerceReal (BoolExpression _)        = Nothing
 
 coerceReal :: EvaluatedExpression -> Double
 coerceReal evalExpr = case maybeCoerceReal evalExpr of
@@ -147,12 +151,12 @@ maybeReadBool :: String -> Maybe Bool
 maybeReadBool boolStr = case map toLower $ trimSpace boolStr of
     "true"      -> Just True
     "false"     -> Just False
-    otherwise   -> Nothing
+    _           -> Nothing
 
 maybeCoerceBool :: EvaluatedExpression -> Maybe Bool
 maybeCoerceBool (StringExpression string) = maybeReadBool string
-maybeCoerceBool (RealExpression real)     = Nothing
-maybeCoerceBool (IntExpression int)       = Nothing
+maybeCoerceBool (RealExpression _)        = Nothing
+maybeCoerceBool (IntExpression _)         = Nothing
 maybeCoerceBool (BoolExpression bool)     = Just bool
 
 coerceBool :: EvaluatedExpression -> Bool
@@ -164,10 +168,12 @@ coerceBool evalExpr = case maybeCoerceBool evalExpr of
 
 -- convert a text table to a database table by using the 1st row as column IDs
 textTableToDatabaseTable :: String -> [[String]] -> DatabaseTable
-textTableToDatabaseTable tableName (headerNames:tblRows) =
+textTableToDatabaseTable tblName (headerNames:tblRows) =
     DatabaseTable (map makeColId headerNames) (map (map StringExpression) tblRows)
     where
-        makeColId colName = ColumnIdentifier (Just tableName) colName
+        makeColId colName = ColumnIdentifier (Just tblName) colName
+textTableToDatabaseTable tblName [] =
+    error $ "invalid table \"" ++ tblName ++ "\". There is no header row"
 
 databaseTableToTextTable :: DatabaseTable -> [[String]]
 databaseTableToTextTable dbTable =
@@ -180,74 +186,49 @@ databaseTableToTextTable dbTable =
 -- | perform a SQL select with the given select statement on the
 --   given table map
 select :: SortConfiguration -> SelectStatement -> (Map.Map String DatabaseTable) -> DatabaseTable
-select sortCfg selectStatement tableMap =
+select sortCfg selectStmt tableMap =
     let
-        fromTbl = case maybeFromTable selectStatement of
+        fromTbl = case maybeFromTable selectStmt of
             Nothing -> DatabaseTable [] []
             Just fromTblExpr -> evalTableExpression sortCfg fromTblExpr tableMap
-        fromTblWithAliases =
-            appendAliasColumns (columnSelections selectStatement) fromTbl
         filteredTbl = case maybeWhereFilter selectStatement of
             Nothing -> fromTblWithAliases
             Just expr -> filterRowsBy expr fromTblWithAliases
     in
-        case maybeGroupByHaving selectStatement of
+        case maybeGroupByHaving selectStmt of
             Nothing ->
-                if selectStatementContainsAggregates selectStatement then
+                if selectStatementContainsAggregates selectStmt then
                     -- for the case where we find aggregate functions but
                     -- no "GROUP BY" part, that means we should apply the
                     -- aggregate to the table as a single group
                     finishWithAggregateSelect
                         sortCfg
-                        selectStatement
+                        selectStmt
                         (GroupedTable (columnIdentifiers filteredTbl) [tableRows filteredTbl])
                 else
-                    finishWithNormalSelect sortCfg selectStatement filteredTbl
+                    finishWithNormalSelect sortCfg selectStmt filteredTbl
             Just groupByPart ->
                 let
                     tblGroups = performGroupBy sortCfg groupByPart filteredTbl
                 in
-                    finishWithAggregateSelect sortCfg selectStatement tblGroups
-
--- TODO this approach wont let you refer to an alias in the column selection
-appendAliasColumns :: [ColumnSelection] -> DatabaseTable -> DatabaseTable
-appendAliasColumns [] dbTable = dbTable
-appendAliasColumns cols dbTable@(DatabaseTable colIds tblRows) =
-    let colAliasExprs = extractColumnAliases cols
-        -- TODO which is the right fold here?
-        evaluatedColExprsTbl = foldl1' tableConcat (evalAliasCols colAliasExprs)
-    in
-        if null colAliasExprs
-        then dbTable
-        else dbTable `tableConcat` evaluatedColExprsTbl
-    where
-        evalAliasCols :: [(ColumnIdentifier, Expression)] -> [DatabaseTable]
-        evalAliasCols [] = []
-        evalAliasCols ((aliasColId, aliasExpr) : tailAliasExprs) =
-            DatabaseTable [aliasColId] [[evalExpression aliasExpr colIds row] | row <- tblRows] :
-            evalAliasCols tailAliasExprs
-
-extractColumnAliases :: [ColumnSelection] -> [(ColumnIdentifier, Expression)]
-extractColumnAliases [] = []
-extractColumnAliases ((ExpressionColumn expr (Just alias)) : colsTail) =
-    (ColumnIdentifier Nothing alias, expr) : extractColumnAliases colsTail
-extractColumnAliases (headCol:tailCols) = extractColumnAliases tailCols
+                    finishWithAggregateSelect sortCfg selectStmt tblGroups
 
 finishWithNormalSelect sortCfg selectStatement filteredDbTable =
     let
         orderedTbl =
-            orderRowsBy sortCfg (orderByItems selectStatement) filteredDbTable
+            orderRowsBy sortCfg (orderByItems selectStmt) filteredDbTable
         selectedTbl =
-            evaluateColumnSelections (columnSelections selectStatement) orderedTbl
+            evaluateColumnSelections (columnSelections selectStmt) orderedTbl
     in
         selectedTbl
 
-finishWithAggregateSelect sortCfg selectStatement aggregateTbls =
+finishWithAggregateSelect :: SortConfiguration -> SelectStatement -> GroupedTable -> DatabaseTable
+finishWithAggregateSelect sortCfg selectStmt aggregateTbls =
     let
         orderedTbls =
-            orderGroupsBy sortCfg (orderByItems selectStatement) aggregateTbls
+            orderGroupsBy sortCfg (orderByItems selectStmt) aggregateTbls
         selectedTbl =
-            evaluateAggregateColumnSelections (columnSelections selectStatement) orderedTbls
+            evaluateAggregateColumnSelections (columnSelections selectStmt) orderedTbls
     in
         selectedTbl
 
@@ -392,7 +373,8 @@ evalTableExpression sortCfg tblExpr tableMap =
             maybeRename maybeTblAlias (select sortCfg selectStmt tableMap)
         
         -- TODO implement me
-        CrossJoin leftJoinTbl maybeTblAlias rightJoinTbl ->
+        --CrossJoin leftJoinTbl maybeTblAlias rightJoinTbl ->
+        CrossJoin _ _ _ ->
             error "Sorry! CROSS JOIN is not yet implemented"
     where
         maybeRename :: (Maybe String) -> DatabaseTable -> DatabaseTable
@@ -400,13 +382,14 @@ evalTableExpression sortCfg tblExpr tableMap =
         maybeRename (Just newName) table = table {
             columnIdentifiers = map (\colId -> colId {maybeTableName = Just newName}) (columnIdentifiers table)}
 
+extractJoinCols :: Expression -> [(ColumnIdentifier, ColumnIdentifier)]
 extractJoinCols (FunctionExpression sqlFunc [arg1, arg2]) =
     case sqlFunc of
         SQLFunction "AND" _ _   -> extractJoinCols arg1 ++ extractJoinCols arg2
         SQLFunction "=" _ _     -> extractJoinColPair arg1 arg2
         
         -- Only expecting "AND" or "="
-        otherwise -> onPartFormattingError
+        _ -> onPartFormattingError
     where
         extractJoinColPair (ColumnExpression col1) (ColumnExpression col2) = [(col1, col2)]
         
@@ -416,6 +399,7 @@ extractJoinCols (FunctionExpression sqlFunc [arg1, arg2]) =
 -- Only expecting "AND" or "="
 extractJoinCols _ = onPartFormattingError
 
+onPartFormattingError :: a
 onPartFormattingError =
     error $ "The \"ON\" part of a join must only contain column equalities " ++
             "joined together by \"AND\" like: " ++
@@ -480,13 +464,12 @@ evaluateAggregateColumnSelections colSelections tblGroups =
         foldl1' tableConcat selectionTbls
 
 evaluateAggregateColumnSelection :: ColumnSelection -> GroupedTable -> DatabaseTable
-evaluateAggregateColumnSelection AllColumns tblGroups =
+evaluateAggregateColumnSelection AllColumns _ =
     error "* is not allowed for aggregate column selections"
-evaluateAggregateColumnSelection (AllColumnsFrom srcTblName) tblGroups =
+evaluateAggregateColumnSelection (AllColumnsFrom srcTblName) _ =
     error $ srcTblName ++ ".* is not allowed for aggregate column selections"
 evaluateAggregateColumnSelection (ExpressionColumn expr maybeAlias) groupedTbl =
     let
-        tblColIds = groupColumnIdentifiers groupedTbl
         tbls = map makeTbl (tableGroups groupedTbl)
         evaluatedExprs = map (evalAggregateExpression expr) tbls
         exprColId = case maybeAlias of
@@ -651,7 +634,6 @@ evalSQLFunction sqlFun evaluatedArgs
         arg1 = head evaluatedArgs
         arg2 = evaluatedArgs !! 1
         arg3 = evaluatedArgs !! 2
-        subStringF start extent string = take extent (drop start string)
         algebraWithCoercion intFunc realFunc args =
             if any useRealAlgebra args then
                 RealExpression $ foldl1' realFunc (map coerceReal args)

@@ -1,7 +1,6 @@
 import Data.List
 import Data.Version (Version(..))
 import System.Environment
-import System.Exit
 import System.IO
 
 import Database.TxtSushi.IO
@@ -9,12 +8,14 @@ import Database.TxtSushi.Util.IOUtil
 
 import Paths_txt_sushi
 
+printUsage :: String -> IO ()
 printUsage progName = do
     putStrLn $ progName ++ " (" ++ versionStr ++ ")"
     putStrLn $ "Usage: " ++ progName ++ " file_name_or_dash"
     where
         versionStr = intercalate "." (map show $ versionBranch version)
 
+main :: IO ()
 main = do
     args <- getArgs
     progName <- getProgName
@@ -25,7 +26,7 @@ main = do
         else do
             contents <- getContentsFromFileOrStdin (last args)
             
-            let table@(headRow:tableTail) = parseTable csvFormat contents
+            let table@(headRow:_) = parseTable csvFormat contents
                 colNames = map ("col" ++) (map show [1 .. length headRow])
                 namedTable = colNames:table
             

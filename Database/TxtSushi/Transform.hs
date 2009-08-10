@@ -9,20 +9,20 @@ module Database.TxtSushi.Transform (
 
 import Data.List
 
-import Database.TxtSushi.IO
-
 -- | sort the given 'table' on the given columns
+sortColumns :: (Ord a) => [Int] -> [[a]] -> [[a]]
 sortColumns columns table =
     sortBy (rowComparison columns) table
 
 -- | compare two rows based on given column balues
+rowComparison :: (Ord a) => [Int] -> [a] -> [a] -> Ordering
 rowComparison [] _ _ = EQ
 rowComparison (columnHead:columnsTail) row1 row2 =
     let colComparison = (row1 !! columnHead) `compare` (row2 !! columnHead)
     in
         case colComparison of
-            EQ          -> rowComparison columnsTail row1 row2
-            otherwise   -> colComparison
+            EQ  -> rowComparison columnsTail row1 row2
+            _   -> colComparison
 
 -- | join together two tables on the given column index pairs
 joinTables :: (Ord o) => [(Int, Int)] -> [[o]] -> [[o]] -> [[o]]
@@ -46,6 +46,7 @@ joinPresortedTables joinColumnZipList sortedTable1 sortedTable2 =
     in
         joinGroupedTables joinColumnZipList tableGroups1 tableGroups2
 
+permutePrependRows :: [[a]] -> [[a]] -> [[a]]
 permutePrependRows [] _ = []
 permutePrependRows _ [] = []
 permutePrependRows (table1HeadRow:table1Tail) table2 =
@@ -55,6 +56,7 @@ permutePrependRows (table1HeadRow:table1Tail) table2 =
     in
         newTable2 ++ (permutePrependRows table1Tail table2)
 
+joinGroupedTables :: (Ord a) => [(Int, Int)] -> [[[a]]] -> [[[a]]] -> [[a]]
 joinGroupedTables _ [] _  = []
 joinGroupedTables _ _  [] = []
 joinGroupedTables joinColumnZipList tableGroups1@(headTableGroup1:tableGroupsTail1) tableGroups2@(headTableGroup2:tableGroupsTail2) =
@@ -70,10 +72,11 @@ joinGroupedTables joinColumnZipList tableGroups1@(headTableGroup1:tableGroupsTai
             GT -> joinGroupedTables joinColumnZipList tableGroups1 tableGroupsTail2
             
             -- the two groups are equal so permute
-            otherwise ->
+            _  ->
                 (permutePrependRows headTableGroup1 headTableGroup2) ++
                 (joinGroupedTables joinColumnZipList tableGroupsTail1 tableGroupsTail2)
 
+asymmetricRowComparison :: (Ord a) => [(Int, Int)] -> [a] -> [a] -> Ordering
 asymmetricRowComparison [] _ _ = EQ
 asymmetricRowComparison (columnsZipHead:columnsZipTail) row1 row2 =
     let
@@ -81,6 +84,5 @@ asymmetricRowComparison (columnsZipHead:columnsZipTail) row1 row2 =
         colComparison = (row1 !! columnHead1) `compare` (row2 !! columnHead2)
     in
         case colComparison of
-            EQ          -> asymmetricRowComparison columnsZipTail row1 row2
-            otherwise   -> colComparison
-
+            EQ  -> asymmetricRowComparison columnsZipTail row1 row2
+            _   -> colComparison

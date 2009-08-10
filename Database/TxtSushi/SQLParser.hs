@@ -74,7 +74,6 @@ import Data.Char
 import Data.List
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Expr
-import Database.TxtSushi.Util.ListUtil
 
 --------------------------------------------------------------------------------
 -- The data definition for select statements
@@ -114,6 +113,7 @@ allMaybeTableNames :: (Maybe TableExpression) -> [String]
 allMaybeTableNames Nothing = []
 allMaybeTableNames (Just tblExp) = allTableNames tblExp
 
+allTableNames :: TableExpression -> [String]
 allTableNames (TableIdentifier tblName _) = [tblName]
 allTableNames (InnerJoin lftTbl rtTbl _ _) =
     (allTableNames lftTbl) ++ (allTableNames rtTbl)
@@ -212,6 +212,9 @@ prettyFormatWithArgs sqlFunc funcArgs
       sqlFunc == substringFromFunction ||
       sqlFunc == notFunction =
         prettyFormatNormalFunctionExpression sqlFunc funcArgs
+    | otherwise =
+        error $ "don't know how to format the given SQL function : " ++
+                show sqlFunc
 
 prettyFormatInfixFunctionExpression :: SQLFunction -> [Expression] -> String
 prettyFormatInfixFunctionExpression sqlFunc funcArgs =
@@ -301,6 +304,7 @@ parseOrderByPart =
         parseAscending  = parseToken "ASCENDING" <|> parseToken "ASC"
         parseDescending = parseToken "DESCENDING" <|> parseToken "DESC"
 
+maybeParseGroupByPart :: GenParser Char st (Maybe ([Expression], Maybe Expression))
 maybeParseGroupByPart =
     ifParseThen
         -- if we see a "GROUP BY"
@@ -315,32 +319,38 @@ maybeParseGroupByPart =
             maybeHavingExpr <- ifParseThen (parseToken "HAVING") parseExpression
             return (groupExprs, maybeHavingExpr)
 
+atLeastOneExpr :: GenParser Char st [Expression]
 atLeastOneExpr = sepByAtLeast 1 parseExpression commaSeparator
 
 --------------------------------------------------------------------------------
 -- Functions for parsing the column names specified after "SELECT"
 --------------------------------------------------------------------------------
 
+parseColumnSelections :: GenParser Char st [ColumnSelection]
 parseColumnSelections =
     sepBy1 parseAnyColType (try commaSeparator)
     where parseAnyColType = parseAllCols <|>
                             (try parseAllColsFromTbl) <|>
                             (try parseColExpression)
 
+parseAllCols :: GenParser Char st ColumnSelection
 parseAllCols = parseToken "*" >> return AllColumns
 
+parseAllColsFromTbl :: GenParser Char st ColumnSelection
 parseAllColsFromTbl = do
     tableVal <- parseIdentifier
     string "." >> spaces >> parseToken "*"
     
     return $ AllColumnsFrom tableVal
 
+parseColExpression :: GenParser Char st ColumnSelection
 parseColExpression = do
     expr <- parseExpression
     maybeAlias <- maybeParseAlias
     
     return $ ExpressionColumn expr maybeAlias
 
+parseColumnId :: GenParser Char st ColumnIdentifier
 parseColumnId = do
     firstId <- parseIdentifier
     
@@ -356,25 +366,20 @@ parseColumnId = do
 -- Functions for parsing the table part (after "FROM")
 --------------------------------------------------------------------------------
 
+parseTableExpression :: GenParser Char a TableExpression
 parseTableExpression =
     parenthesize parseTableExpression <|>
     parseSelectExpression <|>
     parseTableIdentifierOrJoin <?> "Table Expression"
 
-parseParenTableExpression = do
-    parenExpr <- parenthesize parseTableExpression
-    maybeAlias <- maybeParseAlias
-    
-    return $ case maybeAlias of
-        Nothing -> parenExpr
-        Just _  -> parenExpr {maybeTableAlias = maybeAlias}
-
+parseSelectExpression :: GenParser Char a TableExpression
 parseSelectExpression = do
     selectStmt <- parseSelectStatement
     maybeAlias <- maybeParseAlias
     
     return $ SelectExpression selectStmt maybeAlias
 
+parseTableIdentifierOrJoin :: GenParser Char a TableExpression
 parseTableIdentifierOrJoin = do
     nextTblId <- parseTableIdentifier
     
@@ -397,6 +402,7 @@ parseTableIdentifierOrJoin = do
         
     ifCrossOrInnerJoinParse
 
+parseInnerJoinRemainder :: TableExpression -> GenParser Char a TableExpression
 parseInnerJoinRemainder leftTblExpr = do
     rightTblExpr <- parseTableExpression
     
@@ -411,6 +417,7 @@ parseInnerJoinRemainder leftTblExpr = do
             onCondition=onPart,
             maybeTableAlias=maybeAlias}
 
+parseCrossJoinRemainder :: TableExpression -> GenParser Char a TableExpression
 parseCrossJoinRemainder leftTblExpr = do
     rightTblExpr <- parseTableExpression
     maybeAlias <- maybeParseAlias
@@ -420,11 +427,13 @@ parseCrossJoinRemainder leftTblExpr = do
             rightJoinTable=rightTblExpr,
             maybeTableAlias=maybeAlias}
 
+parseTableIdentifier :: GenParser Char st TableExpression
 parseTableIdentifier = do
     theId <- parseIdentifier
     maybeAlias <- maybeParseAlias
     return $ TableIdentifier theId maybeAlias
 
+maybeParseAlias :: GenParser Char st (Maybe [Char])
 maybeParseAlias = ifParseThen (parseToken "AS") parseIdentifier
 
 --------------------------------------------------------------------------------
@@ -517,15 +526,18 @@ parseAnyNormalFunction =
     let allParsers = map parseNormalFunction normalSyntaxFunctions
     in choice allParsers
 
+parseNormalFunction :: SQLFunction -> GenParser Char st Expression
 parseNormalFunction sqlFunc =
     try (parseToken $ functionName sqlFunc) >> parseNormalFunctionArgs sqlFunc
 
+parseNormalFunctionArgs :: SQLFunction -> GenParser Char st Expression
 parseNormalFunctionArgs sqlFunc = do
     args <- parenthesize $ argSepBy (minArgCount sqlFunc) parseExpression commaSeparator
     return $ FunctionExpression sqlFunc args
     where argSepBy = if argCountIsFixed sqlFunc then sepByExactly else sepByAtLeast
 
 -- Functions with "normal" syntax --
+normalSyntaxFunctions :: [SQLFunction]
 normalSyntaxFunctions =
     [absFunction, upperFunction, lowerFunction, trimFunction,
      -- all aggregates except count which accepts a (*)
@@ -533,63 +545,75 @@ normalSyntaxFunctions =
      minFunction, sumFunction]
 
 -- non aggregates
+absFunction :: SQLFunction
 absFunction = SQLFunction {
     functionName    = "ABS",
     minArgCount     = 1,
     argCountIsFixed = True}
 
+upperFunction :: SQLFunction
 upperFunction = SQLFunction {
     functionName    = "UPPER",
     minArgCount     = 1,
     argCountIsFixed = True}
 
+lowerFunction :: SQLFunction
 lowerFunction = SQLFunction {
     functionName    = "LOWER",
     minArgCount     = 1,
     argCountIsFixed = True}
 
+trimFunction :: SQLFunction
 trimFunction = SQLFunction {
     functionName    = "TRIM",
     minArgCount     = 1,
     argCountIsFixed = True}
 
 -- aggregates
+avgFunction :: SQLFunction
 avgFunction = SQLFunction {
     functionName    = "AVG",
     minArgCount     = 1,
     argCountIsFixed = False}
 
+countFunction :: SQLFunction
 countFunction = SQLFunction {
     functionName    = "COUNT",
     minArgCount     = 1,
     argCountIsFixed = False}
 
+firstFunction :: SQLFunction
 firstFunction = SQLFunction {
     functionName    = "FIRST",
     minArgCount     = 1,
     argCountIsFixed = False}
 
+lastFunction :: SQLFunction
 lastFunction = SQLFunction {
     functionName    = "LAST",
     minArgCount     = 1,
     argCountIsFixed = False}
 
+maxFunction :: SQLFunction
 maxFunction = SQLFunction {
     functionName    = "MAX",
     minArgCount     = 1,
     argCountIsFixed = False}
 
+minFunction :: SQLFunction
 minFunction = SQLFunction {
     functionName    = "MIN",
     minArgCount     = 1,
     argCountIsFixed = False}
 
+sumFunction :: SQLFunction
 sumFunction = SQLFunction {
     functionName    = "SUM",
     minArgCount     = 1,
     argCountIsFixed = False}
 
 -- Infix functions --
+infixFunctions :: [[SQLFunction]]
 infixFunctions =
     [[multiplyFunction, divideFunction],
      [plusFunction, minusFunction],
@@ -602,6 +626,7 @@ infixFunctions =
 -- | This function parses the operator part of the infix function and returns
 --   a function that excepts a left expression and right expression to form
 --   an Expression from the FunctionExpression constructor
+parseInfixOp :: SQLFunction -> Operator Char st Expression
 parseInfixOp infixFunc =
     -- use the magic infix type, always assuming left associativity
     Infix opParser AssocLeft
@@ -612,78 +637,93 @@ parseInfixOp infixFunc =
             functionArguments = [leftSubExpr, rightSubExpr]}
 
 -- Algebraic
+multiplyFunction :: SQLFunction
 multiplyFunction = SQLFunction {
     functionName    = "*",
     minArgCount     = 2,
     argCountIsFixed = True}
 
+divideFunction :: SQLFunction
 divideFunction = SQLFunction {
     functionName    = "/",
     minArgCount     = 2,
     argCountIsFixed = True}
 
+plusFunction :: SQLFunction
 plusFunction = SQLFunction {
     functionName    = "+",
     minArgCount     = 2,
     argCountIsFixed = True}
 
+minusFunction :: SQLFunction
 minusFunction = SQLFunction {
     functionName    = "-",
     minArgCount     = 2,
     argCountIsFixed = True}
 
 -- Boolean
+isFunction :: SQLFunction
 isFunction = SQLFunction {
     functionName    = "=",
     minArgCount     = 2,
     argCountIsFixed = True}
 
+isNotFunction :: SQLFunction
 isNotFunction = SQLFunction {
     functionName    = "<>",
     minArgCount     = 2,
     argCountIsFixed = True}
 
+lessThanFunction :: SQLFunction
 lessThanFunction = SQLFunction {
     functionName    = "<",
     minArgCount     = 2,
     argCountIsFixed = True}
 
+lessThanOrEqualToFunction :: SQLFunction
 lessThanOrEqualToFunction = SQLFunction {
     functionName    = "<=",
     minArgCount     = 2,
     argCountIsFixed = True}
 
+greaterThanFunction :: SQLFunction
 greaterThanFunction = SQLFunction {
     functionName    = ">",
     minArgCount     = 2,
     argCountIsFixed = True}
 
+greaterThanOrEqualToFunction :: SQLFunction
 greaterThanOrEqualToFunction = SQLFunction {
     functionName    = ">=",
     minArgCount     = 2,
     argCountIsFixed = True}
 
+andFunction :: SQLFunction
 andFunction = SQLFunction {
     functionName    = "AND",
     minArgCount     = 2,
     argCountIsFixed = True}
 
+orFunction :: SQLFunction
 orFunction = SQLFunction {
     functionName    = "OR",
     minArgCount     = 2,
     argCountIsFixed = True}
 
+concatenateFunction :: SQLFunction
 concatenateFunction = SQLFunction {
     functionName    = "||",
     minArgCount     = 2,
     argCountIsFixed = True}
 
+regexMatchFunction :: SQLFunction
 regexMatchFunction = SQLFunction {
     functionName    = "=~",
     minArgCount     = 2,
     argCountIsFixed = True}
 
 -- Functions with special syntax --
+specialFunctions :: [SQLFunction]
 specialFunctions = [substringFromFunction,
                     substringFromToFunction,
                     negateFunction,
@@ -692,10 +732,13 @@ specialFunctions = [substringFromFunction,
 -- | SUBSTRING(extraction_string FROM starting_position [FOR length]
 --             [COLLATE collation_name])
 --   TODO implement COLLATE part
+substringFromFunction :: SQLFunction
 substringFromFunction = SQLFunction {
     functionName    = "SUBSTRING",
     minArgCount     = 2,
     argCountIsFixed = True}
+
+substringFromToFunction :: SQLFunction
 substringFromToFunction = SQLFunction {
     functionName    = "SUBSTRING",
     minArgCount     = 3,
@@ -715,6 +758,7 @@ parseSubstringFunction = do
         Nothing     -> FunctionExpression substringFromFunction [strExpr, startExpr]
         Just len    -> FunctionExpression substringFromToFunction [strExpr, startExpr, len]
 
+negateFunction :: SQLFunction
 negateFunction = SQLFunction {
     functionName    = "-",
     minArgCount     = 1,
@@ -726,16 +770,19 @@ parseNegateFunction = do
     expr <- parseAnyNonInfixExpression
     return $ FunctionExpression negateFunction [expr]
 
+notFunction :: SQLFunction
 notFunction = SQLFunction {
     functionName    = "NOT",
     minArgCount     = 1,
     argCountIsFixed = True}
 
+parseNotFunction :: GenParser Char st Expression
 parseNotFunction = do
     parseToken $ functionName notFunction
     expr <- parseAnyNonInfixExpression
     return $ FunctionExpression notFunction [expr]
 
+parseCountStar :: GenParser Char st Expression
 parseCountStar = do
     try (parseToken $ functionName countFunction)
     try parseStar <|> parseNormalFunctionArgs countFunction
@@ -749,19 +796,25 @@ parseCountStar = do
 -- Parse utility functions
 --------------------------------------------------------------------------------
 
+parseOpChar :: CharParser st Char
 parseOpChar = oneOf opChars
 
+opChars :: [Char]
 opChars = "~!@#$%^&*-+=|\\<>/?"
 
+withoutTrailing :: (Show s) => GenParser tok st s -> GenParser tok st a -> GenParser tok st a
 withoutTrailing end p = p >>= (\x -> genNotFollowedBy end >> return x)
 
+withTrailing :: (Monad m) => m a -> m b -> m b
 withTrailing end p = p >>= (\x -> end >> return x)
 
 -- | like the lexeme function, this function eats all spaces after the given
 --   parser, but this one works for me and lexeme doesn't
+eatSpacesAfter :: GenParser Char st a -> GenParser Char st a
 eatSpacesAfter p = p >>= (\x -> spaces >> return x)
 
 -- | find out if the given string ends with an op char
+endsWithOp :: String -> Bool
 endsWithOp strToTest = last strToTest `elem` opChars
 
 -- | A token parser that allows either upper or lower case. all trailing
@@ -776,6 +829,7 @@ parseToken tokStr =
 
 -- | parses an identifier. you can use a tick '`' as a quote for
 --   an identifier with white-space
+parseIdentifier :: GenParser Char st String
 parseIdentifier = do
     let parseId = do
             let idChar = alphaNum <|> char '_'
@@ -785,6 +839,7 @@ parseIdentifier = do
 
 -- | quoted text which allows escaping by doubling the quote char
 --   like "escaped quote char here:"""
+quotedText :: Bool -> Char -> GenParser Char st String
 quotedText allowEmpty quoteChar = do
     let quote = char quoteChar
         manyFunc = if allowEmpty then many else many1
@@ -797,10 +852,10 @@ quotedText allowEmpty quoteChar = do
     
     return textValue
 
-exceptChar parser theException = notFollowedBy theException >> parser
-
+escapedQuote :: Char -> GenParser Char st Char
 escapedQuote quoteChar = string [quoteChar, quoteChar] >> return quoteChar
 
+commaSeparator :: GenParser Char st Char
 commaSeparator = eatSpacesAfter $ char ','
 
 -- | Wraps parentheses parsers around the given inner parser
@@ -811,14 +866,13 @@ parenthesize innerParser = do
     eatSpacesAfter $ char ')'
     return innerParseResults
 
+{-
 -- | Either parses the left or right parser returning the result of the
 --   successful parser
 eitherParse :: GenParser tok st a -> GenParser tok st b -> GenParser tok st (Either a b)
 eitherParse leftParser rightParser =
     (try leftParser >>= return . Left) <|> (rightParser >>= return . Right)
-
--- parses 1 or more spaces
-spaces1 = skipMany1 space <?> "whitespace"
+-}
 
 -- | if the ifParse parser succeeds return the result of thenParse, else
 --   return Nothing without parsing any input
@@ -837,11 +891,13 @@ ifParseThenElse ifParse thenPart elsePart = do
         Just _ -> thenPart
         Nothing -> elsePart
 
+parseReservedWord :: GenParser Char st String
 parseReservedWord =
     let reservedWordParsers = map parseToken reservedWords
     in  choice reservedWordParsers
 
 -- TODO are function names reserved... i don't think so
+reservedWords :: [String]
 reservedWords =
     map functionName normalSyntaxFunctions ++
     map functionName (concat infixFunctions) ++
@@ -877,8 +933,8 @@ maybeParse parser =
 
 -- | parse `itemParser`s seperated by exactly `minCount` `sepParser`s
 sepByExactly :: Int -> GenParser tok st a -> GenParser tok st sep -> GenParser tok st [a]
-sepByExactly count itemParser sepParser =
-    let itemParsers = replicate count itemParser
+sepByExactly itemCount itemParser sepParser =
+    let itemParsers = replicate itemCount itemParser
     in parseEach itemParsers
     where
         -- for an empty parser list return an empty result

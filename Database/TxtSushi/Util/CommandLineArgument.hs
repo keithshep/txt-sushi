@@ -16,7 +16,6 @@ module Database.TxtSushi.Util.CommandLineArgument (
 import Data.List
 import Data.Map (Map)
 import qualified Data.Map as Map
---import Test.HUnit
 
 data CommandLineDescription = CommandLineDescription {
     options :: [OptionDescription],
@@ -53,9 +52,15 @@ data OptionDescription = OptionDescription {
     -}
     argumentCountIsFixed :: Bool} deriving (Show, Eq, Ord)
 
-space = " ";
-etc = "...";
+space :: String
+space = " "
 
+etc :: String
+etc = "..."
+
+-- | converts a command line description into a string version that
+--   you can show the user
+formatCommandLine :: CommandLineDescription -> String
 formatCommandLine commandLine =
     let formattedOptions = formatOptions (options commandLine)
         formattedTailArgs = formatTailArguments commandLine
@@ -65,6 +70,7 @@ formatCommandLine commandLine =
         else
             formattedOptions ++ space ++ formattedTailArgs
 
+formatTailArguments :: CommandLineDescription -> String
 formatTailArguments commandLine =
     let tailArgs = tailArgumentNames commandLine
         minTailArgs = minTailArgumentCount commandLine
@@ -89,6 +95,7 @@ formatOptions (headOption:optionsTail) =
         else
             "[" ++ requiredOptionString ++ "]" ++ formattedOptionsTail
 
+argumentSubstring :: OptionDescription -> String
 argumentSubstring option =
     let minArgs = minArgumentCount option
     in
@@ -125,12 +132,12 @@ extractOptions ::
     (Map.Map OptionDescription [[String]], [String])
 extractOptions [] argValues = (Map.empty, argValues)
 extractOptions _ [] = (Map.empty, [])
-extractOptions optDescs argValues@(argHead:argTail) =
+extractOptions optDescs argValues@(argHead:_) =
     case (find (\optDesc -> optionFlag optDesc == argHead) optDescs) of
         Nothing ->
             (Map.empty, argValues)
         Just optDesc ->
-            let (optArgs, afterOptArgs) = extractOption optDesc optDescs argValues
+            let (optArgs, afterOptArgs) = extractOption optDesc optDescs (tail argValues)
                 (tailArgsMap, afterTailArgs) = extractOptions optDescs afterOptArgs
             in (addOptionArgsToMap tailArgsMap optDesc optArgs, afterTailArgs)
 
@@ -139,9 +146,9 @@ extractOption ::
     [OptionDescription] ->
     [String] ->
     ([String], [String])
-extractOption optDesc allOptDescs (argHead:argTail) =
-    let optArgExtent = argumentExtent optDesc allOptDescs argTail
-    in splitAt optArgExtent argTail
+extractOption optDesc allOptDescs optArgsEtc =
+    let optArgExtent = argumentExtent optDesc allOptDescs optArgsEtc
+    in splitAt optArgExtent optArgsEtc
 
 argumentExtent :: OptionDescription -> [OptionDescription] -> [String] -> Int
 argumentExtent optionDescription allOptDescs afterOptArgs =
@@ -174,40 +181,3 @@ addOptionArgsToMap optArgMap opt args =
     case (Map.lookup opt optArgMap) of
         Nothing ->          Map.insert opt [args] optArgMap
         Just currArgs ->    Map.insert opt (currArgs ++ [args]) optArgMap
-
--- Test code
-{-
-byNameOption = OptionDescription
-    False       -- isRequired
-    "-by-name"  -- optionFlag
-    []          -- argumentNames
-    0           -- minArgumentCount
-    True        -- argumentCountIsFixed
-
-helpOption = OptionDescription
-    False       -- isRequired
-    "-help"     -- optionFlag
-    []          -- argumentNames
-    0           -- minArgumentCount
-    True        -- argumentCountIsFixed
-
-fancyPantsOption = OptionDescription
-    False           -- isRequired
-    "-fancy"        -- optionFlag
-    ["f1", "f2"]    -- argumentNames
-    2               -- minArgumentCount
-    False           -- argumentCountIsFixed
-
-cmdLineOps1 = [byNameOption, helpOption, fancyPantsOption]
-
-cmdLineDesc1 = CommandLineDescription
-    cmdLineOps1 -- options
-    1           -- minTailArgumentCount
-    "file/-"    -- tailArgumentNames
-    True        -- tailArgumentCountIsFixed
-cmdLine1 = ["-by-name", "-fancy", "f1arg", "f2arg", "-help", "-"]
-parsedCmd1 = extractOptions (options cmdLineDesc1) cmdLine1
-
-test1 = TestCase $ assertEqual
-    "options test" cmdLineOps1 (options cmdLineDesc1)
--}

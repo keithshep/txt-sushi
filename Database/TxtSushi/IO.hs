@@ -24,7 +24,10 @@ data Format = Format {
     fieldDelimiter :: String,
     rowDelimiter :: String} deriving (Show)
 
+csvFormat :: Format
 csvFormat = Format "\"" "," "\n"
+
+tabDelimitedFormat :: Format
 tabDelimitedFormat = Format "\"" "\t" "\n"
 
 {- |
@@ -33,6 +36,7 @@ get a quote escape sequence for the given 'Format'
 doubleQuote :: Format -> String
 doubleQuote format = (quote format) ++ (quote format)
 
+formatTableWithWidths :: String -> [Int] -> [[String]] -> String
 formatTableWithWidths _ _ [] = []
 formatTableWithWidths boundaryString widths (row:tableTail) =
     let
@@ -65,10 +69,11 @@ maxTableColumnWidthsInternal (row:tableTail) prevMaxValues
 
 -- this filthy little function is for making the list strict... otherwise
 -- we run out of memory
+seqList :: [a] -> Bool
 seqList [] = False
-seqList (head:tail)
-    | head `seq` False = undefined
-    | otherwise = seqList tail
+seqList (x:xt)
+    | x `seq` False = undefined
+    | otherwise = seqList xt
 
 maxRowFieldWidths :: [String] -> [Int] -> [Int]
 maxRowFieldWidths row prevMaxValues =
@@ -106,6 +111,7 @@ formatRow format (headField:rowTail) =
 {- |
 encode the given text field if it contains any special formatting characters
 -}
+encodeField :: Format -> String -> String
 encodeField format field =
     if (quote format) `isInfixOf` field then
         let escapedField = replaceAll field (quote format) (doubleQuote format)
