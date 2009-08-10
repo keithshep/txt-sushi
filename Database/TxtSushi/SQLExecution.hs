@@ -191,7 +191,9 @@ select sortCfg selectStmt tableMap =
         fromTbl = case maybeFromTable selectStmt of
             Nothing -> DatabaseTable [] []
             Just fromTblExpr -> evalTableExpression sortCfg fromTblExpr tableMap
-        filteredTbl = case maybeWhereFilter selectStatement of
+        fromTblWithAliases =
+            appendAliasColumns (columnSelections selectStmt) fromTbl
+        filteredTbl = case maybeWhereFilter selectStmt of
             Nothing -> fromTblWithAliases
             Just expr -> filterRowsBy expr fromTblWithAliases
     in
@@ -213,7 +215,32 @@ select sortCfg selectStmt tableMap =
                 in
                     finishWithAggregateSelect sortCfg selectStmt tblGroups
 
-finishWithNormalSelect sortCfg selectStatement filteredDbTable =
+-- TODO this approach wont let you refer to an alias in the column selection
+appendAliasColumns :: [ColumnSelection] -> DatabaseTable -> DatabaseTable
+appendAliasColumns [] dbTable = dbTable
+appendAliasColumns cols dbTable@(DatabaseTable colIds tblRows) =
+    let colAliasExprs = extractColumnAliases cols
+        -- TODO which is the right fold here?
+        evaluatedColExprsTbl = foldl1' tableConcat (evalAliasCols colAliasExprs)
+    in
+        if null colAliasExprs
+        then dbTable
+        else dbTable `tableConcat` evaluatedColExprsTbl
+    where
+        evalAliasCols :: [(ColumnIdentifier, Expression)] -> [DatabaseTable]
+        evalAliasCols [] = []
+        evalAliasCols ((aliasColId, aliasExpr) : tailAliasExprs) =
+            DatabaseTable [aliasColId] [[evalExpression aliasExpr colIds row] | row <- tblRows] :
+            evalAliasCols tailAliasExprs
+
+extractColumnAliases :: [ColumnSelection] -> [(ColumnIdentifier, Expression)]
+extractColumnAliases [] = []
+extractColumnAliases ((ExpressionColumn expr (Just alias)) : colsTail) =
+    (ColumnIdentifier Nothing alias, expr) : extractColumnAliases colsTail
+extractColumnAliases (headCol:tailCols) = extractColumnAliases tailCols
+
+finishWithNormalSelect :: SortConfiguration -> SelectStatement -> DatabaseTable -> DatabaseTable
+finishWithNormalSelect sortCfg selectStmt filteredDbTable =
     let
         orderedTbl =
             orderRowsBy sortCfg (orderByItems selectStmt) filteredDbTable
