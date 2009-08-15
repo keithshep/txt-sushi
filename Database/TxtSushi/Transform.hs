@@ -4,6 +4,7 @@ Simple table transformations
 module Database.TxtSushi.Transform (
     sortColumns,
     joinTables,
+    crossJoinTables,
     joinPresortedTables,
     rowComparison) where
 
@@ -46,15 +47,15 @@ joinPresortedTables joinColumnZipList sortedTable1 sortedTable2 =
     in
         joinGroupedTables joinColumnZipList tableGroups1 tableGroups2
 
-permutePrependRows :: [[a]] -> [[a]] -> [[a]]
-permutePrependRows [] _ = []
-permutePrependRows _ [] = []
-permutePrependRows (table1HeadRow:table1Tail) table2 =
+crossJoinTables :: [[a]] -> [[a]] -> [[a]]
+crossJoinTables [] _ = []
+crossJoinTables _ [] = []
+crossJoinTables (table1HeadRow:table1Tail) table2 =
     let
         prependHead = (table1HeadRow ++)
         newTable2 = map prependHead table2
     in
-        newTable2 ++ (permutePrependRows table1Tail table2)
+        newTable2 ++ (crossJoinTables table1Tail table2)
 
 joinGroupedTables :: (Ord a) => [(Int, Int)] -> [[[a]]] -> [[[a]]] -> [[a]]
 joinGroupedTables _ [] _  = []
@@ -73,7 +74,7 @@ joinGroupedTables joinColumnZipList tableGroups1@(headTableGroup1:tableGroupsTai
             
             -- the two groups are equal so permute
             _  ->
-                (permutePrependRows headTableGroup1 headTableGroup2) ++
+                (crossJoinTables headTableGroup1 headTableGroup2) ++
                 (joinGroupedTables joinColumnZipList tableGroupsTail1 tableGroupsTail2)
 
 asymmetricRowComparison :: (Ord a) => [(Int, Int)] -> [a] -> [a] -> Ordering

@@ -386,7 +386,7 @@ parseTableIdentifierOrJoin = do
     let
         ifCrossOrInnerJoinParse = ifParseThenElse
             -- if
-            (parseToken "CROSS" >> parseToken "JOIN") -- TODO commit to join
+            crossJoinSep -- TODO commit to join
             -- then
             (parseCrossJoinRemainder nextTblId)
             -- else
@@ -394,13 +394,17 @@ parseTableIdentifierOrJoin = do
     
         ifInnerJoinParse = ifParseThenElse
             -- if
-            ((maybeParse $ parseToken "INNER") >> parseToken "JOIN") -- TODO commit to join
+            innerJoinSep -- TODO commit to join
             -- then
             (parseInnerJoinRemainder nextTblId)
             -- else
             (return nextTblId)
         
     ifCrossOrInnerJoinParse
+    
+    where
+        crossJoinSep = (commaSeparator >> return "") <|> (parseToken "CROSS" >> parseToken "JOIN")
+        innerJoinSep = ((maybeParse $ parseToken "INNER") >> parseToken "JOIN")
 
 parseInnerJoinRemainder :: TableExpression -> GenParser Char a TableExpression
 parseInnerJoinRemainder leftTblExpr = do

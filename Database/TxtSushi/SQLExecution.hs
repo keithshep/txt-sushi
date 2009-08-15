@@ -237,7 +237,7 @@ extractColumnAliases :: [ColumnSelection] -> [(ColumnIdentifier, Expression)]
 extractColumnAliases [] = []
 extractColumnAliases ((ExpressionColumn expr (Just alias)) : colsTail) =
     (ColumnIdentifier Nothing alias, expr) : extractColumnAliases colsTail
-extractColumnAliases (headCol:tailCols) = extractColumnAliases tailCols
+extractColumnAliases xs = extractColumnAliases $ tail xs
 
 finishWithNormalSelect :: SortConfiguration -> SelectStatement -> DatabaseTable -> DatabaseTable
 finishWithNormalSelect sortCfg selectStmt filteredDbTable =
@@ -400,9 +400,14 @@ evalTableExpression sortCfg tblExpr tableMap =
             maybeRename maybeTblAlias (select sortCfg selectStmt tableMap)
         
         -- TODO implement me
-        --CrossJoin leftJoinTbl maybeTblAlias rightJoinTbl ->
-        CrossJoin _ _ _ ->
-            error "Sorry! CROSS JOIN is not yet implemented"
+        CrossJoin leftJoinTblExpr rightJoinTblExpr maybeTblAlias ->
+            let
+                leftJoinTbl = evalTableExpression sortCfg leftJoinTblExpr tableMap
+                rightJoinTbl = evalTableExpression sortCfg rightJoinTblExpr tableMap
+                joinedTbl = crossJoin leftJoinTbl rightJoinTbl
+            in
+                maybeRename maybeTblAlias joinedTbl
+    
     where
         maybeRename :: (Maybe String) -> DatabaseTable -> DatabaseTable
         maybeRename Nothing table = table
@@ -438,6 +443,13 @@ innerJoin :: [(Int, Int)] -> DatabaseTable -> DatabaseTable -> DatabaseTable
 innerJoin joinIndices leftJoinTbl rightJoinTbl = DatabaseTable {
     columnIdentifiers = (columnIdentifiers leftJoinTbl) ++ (columnIdentifiers rightJoinTbl),
     tableRows = joinTables joinIndices (tableRows leftJoinTbl) (tableRows rightJoinTbl)}
+
+-- | perform a cross join using the given join indices on the given
+--   tables
+crossJoin :: DatabaseTable -> DatabaseTable -> DatabaseTable
+crossJoin leftJoinTbl rightJoinTbl = DatabaseTable {
+    columnIdentifiers = (columnIdentifiers leftJoinTbl) ++ (columnIdentifiers rightJoinTbl),
+    tableRows = crossJoinTables (tableRows leftJoinTbl) (tableRows rightJoinTbl)}
 
 -- | convert the column ID pairs into index pairs
 joinColumnIndices :: DatabaseTable -> DatabaseTable -> [(ColumnIdentifier, ColumnIdentifier)] -> [(Int, Int)]
@@ -599,6 +611,7 @@ evalExpression (FunctionExpression sqlFun funArgs) columnIds tblRow =
     where
         evalArgExpr expr = evalExpression expr columnIds tblRow
 
+-- TODO this ugly function needs to be modularized
 evalSQLFunction :: SQLFunction -> [EvaluatedExpression] -> EvaluatedExpression
 evalSQLFunction sqlFun evaluatedArgs
     -- Global validation
