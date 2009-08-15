@@ -178,7 +178,7 @@ textTableToDatabaseTable tblName [] =
 databaseTableToTextTable :: DatabaseTable -> [[String]]
 databaseTableToTextTable dbTable =
     let
-        headerRow = (map columnId (columnIdentifiers dbTable))
+        headerRow = map columnId (columnIdentifiers dbTable)
         tailRows = map (map coerceString) (tableRows dbTable)
     in
         headerRow:tailRows
