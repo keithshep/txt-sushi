@@ -46,7 +46,7 @@ tableDefOption :: OptionDescription
 tableDefOption = OptionDescription {
     isRequired              = False,
     optionFlag              = "-table",
-    argumentNames           = ["CSV_file_name", "table_name"],
+    argumentNames           = ["table_name", "CSV_file_name"],
     minArgumentCount        = 2,
     argumentCountIsFixed    = True}
 
