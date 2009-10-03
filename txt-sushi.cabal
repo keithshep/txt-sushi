@@ -55,6 +55,10 @@ Executable namecolumns
   Main-Is:          namecolumns.hs
   GHC-Options:      -O2 -Wall
 
+Executable transposecsv
+  Main-Is:          transposecsv.hs
+  GHC-Options:      -O2 -Wall
+
 Library
   Exposed-Modules:
     Database.TxtSushi.IO
