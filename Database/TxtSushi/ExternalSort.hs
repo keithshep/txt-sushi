@@ -30,10 +30,10 @@ externalSortBy = externalSortByConstrained defaultByteQuota defaultMaxOpenFiles
 defaultByteQuota :: Int
 defaultByteQuota = 16 * 1024 * 1024
 
--- | Currently 16 files. Don't rely on this value staying the same in future
+-- | Currently 17 files. Don't rely on this value staying the same in future
 --   releases!
 defaultMaxOpenFiles :: Int
-defaultMaxOpenFiles = 8
+defaultMaxOpenFiles = 17
 
 -- | performs an external sort on the given list using the given resource
 --   constraints
@@ -41,13 +41,9 @@ defaultMaxOpenFiles = 8
 externalSortByConstrained :: (Binary b, Integral i) => i -> i -> (b -> b -> Ordering) -> [b] -> [b]
 externalSortByConstrained byteQuota maxOpenFiles cmp xs = unsafePerformIO $ do
     partialSortFiles <- bufferPartialSortsBy (fromIntegral byteQuota) cmp xs
-    partialSortByteStrs <- readBinFiles partialSortFiles
-    
-    let partialSortBinaries = map decodeAll partialSortByteStrs
     
     -- now we must merge together the partial sorts
-    --return $ mergeAllBy cmp partialSortBinaries
-    externalMergeAllBy (fromIntegral maxOpenFiles) cmp partialSortBinaries
+    externalMergeAllBy (fromIntegral maxOpenFiles) cmp partialSortFiles
 
 -- | merge a list of sorted lists into a single sorted list
 mergeAllBy :: (a -> a -> Ordering) -> [[a]] -> [a]
@@ -67,7 +63,7 @@ mergeAllBy cmp listList =
 partitionAndMerge :: Int -> (a -> a -> Ordering) -> [[a]] -> [[a]]
 partitionAndMerge _ _ [] = []
 partitionAndMerge partitionSize cmp listList =
-    map (mergeAllBy cmp) $ regularPartitions partitionSize listList
+    map (mergeAllBy cmp) (regularPartitions partitionSize listList)
 
 -- | chops up the given list at regular intervals
 regularPartitions :: Int -> [a] -> [[a]]
@@ -82,26 +78,32 @@ mergeBy _ []    list2   = list2
 mergeBy _ list1 []      = list1
 mergeBy comparisonFunction list1@(head1:tail1) list2@(head2:tail2) =
     case head1 `comparisonFunction` head2 of
-        GT  -> (head2:(mergeBy comparisonFunction list1 tail2))
-        _   -> (head1:(mergeBy comparisonFunction tail1 list2))
+        GT  -> head2 : mergeBy comparisonFunction list1 tail2
+        _   -> head1 : mergeBy comparisonFunction tail1 list2
 
-externalMergeAllBy :: Binary b => Int -> (b -> b -> Ordering) -> [[b]] -> IO [b]
-externalMergeAllBy _ _ [] = return []
--- TODO do i need to write singleton lists to file in order to keep the max open file promise??
-externalMergeAllBy _ _ [singletonList] = return singletonList
-externalMergeAllBy maxOpenFiles cmp listList = do
+externalMergePass :: Binary b => Int -> (b -> b -> Ordering) -> [String] -> IO [String]
+externalMergePass _ _ [] = return []
+externalMergePass maxOpenFiles cmp files = do
     -- we use (maxOpenFiles - 1) because we need to account for the file
     -- handle that we're reading from
-    let mergedPartitions = partitionAndMerge (maxOpenFiles - 1) cmp listList
+    let (mergeNowFiles, mergeLaterFiles) = splitAt (maxOpenFiles - 1) files
     
-    -- Stream the results through the file system (we don't want to hold
-    -- the results in memory)
-    mergedBuffFiles <- sequence $ map bufferToTempFile mergedPartitions
-    mergedByteStrs <- readBinFiles mergedBuffFiles
-    let mergedBinaries = map decodeAll mergedByteStrs
+    mergeNowBinStrs <- readThenDelBinFiles mergeNowFiles
+    let mergeNowBinaries = map decodeAll mergeNowBinStrs
+    mergedNowFile <- bufferToTempFile $ mergeAllBy cmp mergeNowBinaries
     
-    -- time to recurse
-    externalMergeAllBy maxOpenFiles cmp mergedBinaries
+    mergedLaterFiles <- externalMergePass maxOpenFiles cmp mergeLaterFiles
+    
+    return $ mergedNowFile : mergedLaterFiles
+
+externalMergeAllBy :: Binary b => Int -> (b -> b -> Ordering) -> [String] -> IO [b]
+externalMergeAllBy _ _ [] = return []
+-- TODO do i need to write singleton lists to file in order to keep the max open file promise??
+externalMergeAllBy _ _ [singletonFile] =
+    readThenDelBinFile singletonFile >>= return . decodeAll
+externalMergeAllBy maxOpenFiles cmp files = do
+    partiallyMergedFiles <- externalMergePass maxOpenFiles cmp files
+    externalMergeAllBy maxOpenFiles cmp partiallyMergedFiles
 
 -- | create a list of parial sorts
 bufferPartialSortsBy :: (Binary b) => Int64 -> (b -> b -> Ordering) -> [b] -> IO [String]
@@ -128,12 +130,17 @@ splitAfterQuota quotaInBytes (binaryHead:binaryTail) =
         then ([binaryHead], binaryTail)
         else (binaryHead:fstBinsTail, sndBins)
 
--- | lazily reads the given binary files
-readBinFiles :: [String] -> IO [BS.ByteString]
-readBinFiles fileNames = do
-    fileHandles <- sequence [openBinaryFile file ReadMode | file <- fileNames]
-    byteStrs <- sequence $ map BS.hGetContents fileHandles
-    return byteStrs
+-- | lazily reads then deletes the given files
+readThenDelBinFiles :: [String] -> IO [BS.ByteString]
+readThenDelBinFiles = sequence . map readThenDelBinFile
+
+-- | lazily reads then deletes the given file after the last byte is read
+readThenDelBinFile :: String -> IO BS.ByteString
+readThenDelBinFile fileName = do
+    binStr <- BS.readFile fileName
+    emptyStr <- unsafeInterleaveIO $ removeFile fileName >> return BS.empty
+    
+    return $ binStr `BS.append` emptyStr
 
 -- | buffer the binaries to a temporary file and return a handle to that file
 bufferToTempFile :: (Binary b) => [b] -> IO String
