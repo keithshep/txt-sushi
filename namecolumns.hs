@@ -1,33 +1,30 @@
-import Data.List
-import Data.Version (Version(..))
 import System.Environment
 import System.IO
 
 import Database.TxtSushi.IO
 import Database.TxtSushi.Util.IOUtil
 
-import Paths_txt_sushi
-
-printUsage :: String -> IO ()
-printUsage progName = do
-    putStrLn $ progName ++ " (" ++ versionStr ++ ")"
-    putStrLn $ "Usage: " ++ progName ++ " file_name_or_dash"
-    where
-        versionStr = intercalate "." (map show $ versionBranch version)
-
 main :: IO ()
 main = do
     args <- getArgs
-    progName <- getProgName
     
-    if (length args) /= 1
-        then do
-            printUsage progName
-        else do
-            contents <- getContentsFromFileOrStdin (last args)
+    case args of
+        [fileArg] -> do
+            contents <- getContentsFromFileOrStdin fileArg
             
-            let table@(headRow:_) = parseTable csvFormat contents
-                colNames = map ("col" ++) (map show [1 .. length headRow])
-                namedTable = colNames:table
-            
-            putStr $ if null table then "" else formatTable csvFormat namedTable
+            let table = parseTable csvFormat contents
+            case table of
+                
+                -- we only need the 1st row's column count to name the columns
+                (headRow : _) ->
+                    let colNames = map ("col" ++) (map show [1 .. length headRow])
+                        namedTable = formatTable csvFormat [colNames] ++ contents
+                    in
+                        putStr namedTable
+                
+                -- the given table was empty (is it better for this to be an
+                -- error ?)
+                _ -> return ()
+        
+        -- we were expecting a single file name arg
+        _ -> printSingleFileUsage

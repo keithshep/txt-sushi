@@ -1,9 +1,15 @@
 module Database.TxtSushi.Util.IOUtil (
     bufferStdioToTempFile,
-    getContentsFromFileOrStdin) where
+    getContentsFromFileOrStdin,
+    printSingleFileUsage) where
 
+import Data.List
+import Data.Version (Version(..))
 import System.Directory
+import System.Environment
 import System.IO
+
+import Paths_txt_sushi
 
 -- | buffers standard input to a temp file and returns a path to that file
 bufferStdioToTempFile :: IO FilePath
@@ -18,10 +24,18 @@ bufferStdioToTempFile = do
 -- | if given "-" this file reads from stdin otherwise it reads from the named
 --   file
 getContentsFromFileOrStdin :: String -> IO String
-getContentsFromFileOrStdin filePath = do
+getContentsFromFileOrStdin filePath =
     if filePath == "-"
-        then do
-            getContents
-        else do
-            handle <- openFile filePath ReadMode
-            hGetContents handle
+        then getContents
+        else readFile filePath
+
+-- | print a cookie-cutter usage message for the command line utilities
+--   that take a single file name or "-" as input
+printSingleFileUsage :: IO ()
+printSingleFileUsage = do
+    progName <- getProgName
+    putStrLn $ progName ++ " (" ++ versionStr ++ ")"
+    putStrLn $ "Usage: " ++ progName ++ " file_name_or_dash"
+    
+    where
+        versionStr = intercalate "." (map show . versionBranch $ version)

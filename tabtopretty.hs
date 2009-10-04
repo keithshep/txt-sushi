@@ -1,5 +1,3 @@
-import Data.List
-import Data.Version (Version(..))
 import System.Directory
 import System.Environment
 import System.IO
@@ -7,26 +5,13 @@ import System.IO
 import Database.TxtSushi.IO
 import Database.TxtSushi.Util.IOUtil
 
-import Paths_txt_sushi
-
-printUsage :: String -> IO ()
-printUsage progName = do
-    putStrLn $ progName ++ " (" ++ versionStr ++ ")"
-    putStrLn $ "Usage: " ++ progName ++ " file_name_or_dash"
-    where
-        versionStr = intercalate "." (map show $ versionBranch version)
-
 main :: IO ()
 main = do
     args <- getArgs
-    progName <- getProgName
     
-    if (length args) /= 1
-        then do
-            printUsage progName
-        else do
-            let fileArg = head args
-                useStdio = (fileArg == "-")
+    case args of
+        [fileArg] -> do
+            let useStdio = (fileArg == "-")
             
             file <- if useStdio then bufferStdioToTempFile else return fileArg
             
@@ -44,3 +29,6 @@ main = do
             hClose handle1
             hClose handle2
             if useStdio then removeFile file else return ()
+            
+        -- we were expecting a single file name arg
+        _ -> printSingleFileUsage
