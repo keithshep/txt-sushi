@@ -59,6 +59,10 @@ Executable transposecsv
   Main-Is:          transposecsv.hs
   GHC-Options:      -O2 -Wall
 
+Executable transposetab
+  Main-Is:          transposetab.hs
+  GHC-Options:      -O2 -Wall
+
 Library
   Exposed-Modules:
     Database.TxtSushi.IO
