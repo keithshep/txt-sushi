@@ -183,6 +183,32 @@ databaseTableToTextTable dbTable =
     in
         headerRow:tailRows
 
+{-
+optimizeClassicJoins :: SelectStatement -> SelectStatement
+optimizeClassicJoins selectStmt@(SelectStatement _ (Just fromTbl) (Just whereFilter) _ _) =
+    let (optFromTbl, optMaybeWhereFilter) = optimizeFromWhere Nothing fromTbl whereFilter
+    in  selectStmt {
+            maybeFromTable = Just optFromTbl,
+            maybeWhereFilter = optMaybeWhereFilter}
+optimizeClassicJoins selectStmt = selectStmt
+
+optimizeFromWhere :: Maybe String -> TableExpression -> Maybe Expression -> (TableExpression, Maybe Expression)
+optimizeFromWhere maybeParentAlias _ Nothing =
+    (fromTbl, Just expr)
+optimizeFromWhere maybeParentAlias fromTbl@(InnerJoin leftJoinTbl rightJoinTbl _ maybeChildAlias) (Just expr) =
+    let
+        maybeAlias = case maybeParentAlias of
+            Nothing -> maybeChildAlias
+            Just -  -> maybeParentAlias
+        (optLeftTbl, expr2) = optimizeFromWhere maybeAlias leftJoinTbl expr
+        (optRightTbl, expr3) = optimizeFromWhere maybeAlias rightJoinTbl expr2
+        optFromTbl = fromTbl {
+            leftJoinTable,
+            rightJoinTable}
+    in
+        (optFromTbl, Just expr3)
+-}
+
 -- | perform a SQL select with the given select statement on the
 --   given table map
 select :: SortConfiguration -> SelectStatement -> (Map.Map String DatabaseTable) -> DatabaseTable
