@@ -21,11 +21,11 @@ Cabal-Version:       >=1.2
 
 Source-Repository head
   type:     darcs
-  location: http://patch-tag.com/r/txt-sushi/pullrepo
+  location: http://patch-tag.com/r/keithshep/txt-sushi/pullrepo
 
 Source-Repository this
   type:     darcs
-  location: http://patch-tag.com/r/txt-sushi/pullrepo
+  location: http://patch-tag.com/r/keithshep/txt-sushi/pullrepo
   tag:      0.4.0
 
 Executable tssql
