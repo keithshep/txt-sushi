@@ -17,7 +17,7 @@ Homepage:            http://keithsheppard.name/txt-sushi
 Bug-Reports:         http://code.google.com/p/txt-sushi/issues/list
 Build-Type:          Simple
 Category:            Database, Utils, Text
-Cabal-Version:       >=1.2
+Cabal-Version:       >= 1.6
 
 Source-Repository head
   type:     darcs
@@ -65,6 +65,7 @@ Executable transposetab
 
 Library
   Exposed-Modules:
+    Database.TxtSushi.ExternalSort
     Database.TxtSushi.IO
     Database.TxtSushi.SQLExecution
     Database.TxtSushi.SQLParser
@@ -73,5 +74,5 @@ Library
     Database.TxtSushi.Util.IOUtil
     Database.TxtSushi.Util.ListUtil
   
-  Build-Depends:    base,binary,bytestring,containers,directory,parsec,regex-posix
+  Build-Depends:    base >= 3 && < 5,binary,bytestring,containers,directory,parsec,regex-posix
   GHC-Options:      -O2 -Wall
