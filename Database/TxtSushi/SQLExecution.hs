@@ -42,16 +42,16 @@ sortByCfg UseExternalSort = externalSortBy
 --   TODO: need allColumnsColumnIdentifiers and allColumnsTableRows so that
 --         we can filter and order on columns that are selected out. we also
 --         should track any column ordering that is in place
-data DatabaseTable = DatabaseTable {
+data DatabaseTable d = DatabaseTable {
     -- | the columns in this table
     columnIdentifiers :: [ColumnIdentifier],
     
     -- | the actual table data
-    tableRows :: [[EvaluatedExpression]]}
+    tableRows :: [[d]]}
 
-data GroupedTable = GroupedTable {
-    groupColumnIdentifiers :: [ColumnIdentifier],
-    tableGroups :: [[[EvaluatedExpression]]]}
+type SimpleTable = DatabaseTable EvaluatedExpression
+
+type GroupedTable = DatabaseTable [EvaluatedExpression]
 
 data EvaluatedExpression =
     StringExpression    String |
@@ -167,7 +167,7 @@ coerceBool evalExpr = case maybeCoerceBool evalExpr of
                 "\" to a boolean value"
 
 -- convert a text table to a database table by using the 1st row as column IDs
-textTableToDatabaseTable :: String -> [[String]] -> DatabaseTable
+textTableToDatabaseTable :: String -> [[String]] -> SimpleTable
 textTableToDatabaseTable tblName (headerNames:tblRows) =
     DatabaseTable (map makeColId headerNames) (map (map StringExpression) tblRows)
     where
@@ -175,7 +175,7 @@ textTableToDatabaseTable tblName (headerNames:tblRows) =
 textTableToDatabaseTable tblName [] =
     error $ "invalid table \"" ++ tblName ++ "\". There is no header row"
 
-databaseTableToTextTable :: DatabaseTable -> [[String]]
+databaseTableToTextTable :: SimpleTable -> [[String]]
 databaseTableToTextTable dbTable =
     let
         headerRow = map columnId (columnIdentifiers dbTable)
@@ -211,7 +211,7 @@ optimizeFromWhere maybeParentAlias fromTbl@(InnerJoin leftJoinTbl rightJoinTbl _
 
 -- | perform a SQL select with the given select statement on the
 --   given table map
-select :: SortConfiguration -> SelectStatement -> (Map.Map String DatabaseTable) -> DatabaseTable
+select :: SortConfiguration -> SelectStatement -> (Map.Map String SimpleTable) -> SimpleTable
 select sortCfg selectStmt tableMap =
     let
         fromTbl = case maybeFromTable selectStmt of
@@ -232,7 +232,7 @@ select sortCfg selectStmt tableMap =
                     finishWithAggregateSelect
                         sortCfg
                         selectStmt
-                        (GroupedTable (columnIdentifiers filteredTbl) [tableRows filteredTbl])
+                        (DatabaseTable (columnIdentifiers filteredTbl) [tableRows filteredTbl])
                 else
                     finishWithNormalSelect sortCfg selectStmt filteredTbl
             Just groupByPart ->
@@ -242,7 +242,7 @@ select sortCfg selectStmt tableMap =
                     finishWithAggregateSelect sortCfg selectStmt tblGroups
 
 -- TODO this approach wont let you refer to an alias in the column selection
-appendAliasColumns :: [ColumnSelection] -> DatabaseTable -> DatabaseTable
+appendAliasColumns :: [ColumnSelection] -> SimpleTable -> SimpleTable
 appendAliasColumns [] dbTable = dbTable
 appendAliasColumns cols dbTable@(DatabaseTable colIds tblRows) =
     let colAliasExprs = extractColumnAliases cols
@@ -253,7 +253,7 @@ appendAliasColumns cols dbTable@(DatabaseTable colIds tblRows) =
         then dbTable
         else dbTable `tableConcat` evaluatedColExprsTbl
     where
-        evalAliasCols :: [(ColumnIdentifier, Expression)] -> [DatabaseTable]
+        evalAliasCols :: [(ColumnIdentifier, Expression)] -> [SimpleTable]
         evalAliasCols [] = []
         evalAliasCols ((aliasColId, aliasExpr) : tailAliasExprs) =
             DatabaseTable [aliasColId] [[evalExpression aliasExpr colIds row] | row <- tblRows] :
@@ -265,7 +265,7 @@ extractColumnAliases ((ExpressionColumn expr (Just alias)) : colsTail) =
     (ColumnIdentifier Nothing alias, expr) : extractColumnAliases colsTail
 extractColumnAliases xs = extractColumnAliases $ tail xs
 
-finishWithNormalSelect :: SortConfiguration -> SelectStatement -> DatabaseTable -> DatabaseTable
+finishWithNormalSelect :: SortConfiguration -> SelectStatement -> SimpleTable -> SimpleTable
 finishWithNormalSelect sortCfg selectStmt filteredDbTable =
     let
         orderedTbl =
@@ -275,7 +275,7 @@ finishWithNormalSelect sortCfg selectStmt filteredDbTable =
     in
         selectedTbl
 
-finishWithAggregateSelect :: SortConfiguration -> SelectStatement -> GroupedTable -> DatabaseTable
+finishWithAggregateSelect :: SortConfiguration -> SelectStatement -> GroupedTable -> SimpleTable
 finishWithAggregateSelect sortCfg selectStmt aggregateTbls =
     let
         orderedTbls =
@@ -285,7 +285,7 @@ finishWithAggregateSelect sortCfg selectStmt aggregateTbls =
     in
         selectedTbl
 
-performGroupBy :: SortConfiguration -> ([Expression], Maybe Expression) -> DatabaseTable -> GroupedTable
+performGroupBy :: SortConfiguration -> ([Expression], Maybe Expression) -> SimpleTable -> GroupedTable
 performGroupBy sortCfg (groupByExprs, maybeExpr) dbTable =
     let
         tblGroups = groupRowsBy sortCfg groupByExprs dbTable
@@ -295,7 +295,7 @@ performGroupBy sortCfg (groupByExprs, maybeExpr) dbTable =
             Just expr -> filterGroupsBy expr tblGroups
 
 -- | sorts table rows by the given order by items
-orderRowsBy :: SortConfiguration -> [OrderByItem] -> DatabaseTable -> DatabaseTable
+orderRowsBy :: SortConfiguration -> [OrderByItem] -> SimpleTable -> SimpleTable
 orderRowsBy _ [] dbTable = dbTable
 orderRowsBy sortCfg orderBys dbTable =
     let
@@ -310,10 +310,10 @@ orderGroupsBy _ [] groupedTable = groupedTable
 orderGroupsBy sortCfg orderBys groupedTable =
     let
         -- curry in the order and col ID params to make a group comparison function
-        compareGroups = compareGroupsOnOrderItems orderBys (groupColumnIdentifiers groupedTable)
-        sortedGroups = sortByCfg sortCfg compareGroups (tableGroups groupedTable)
+        compareGroups = compareGroupsOnOrderItems orderBys (columnIdentifiers groupedTable)
+        sortedGroups = sortByCfg sortCfg compareGroups (tableRows groupedTable)
     in
-        groupedTable {tableGroups = sortedGroups}
+        groupedTable {tableRows = sortedGroups}
 
 -- | Compares two rows using the given OrderByItems and column ID's
 compareRowsOnOrderItems :: [OrderByItem] -> [ColumnIdentifier] -> [EvaluatedExpression] -> [EvaluatedExpression] -> Ordering
@@ -385,9 +385,9 @@ compareGroupsOnExpression expr colIds grp1 grp2 =
     where
         evalExprOn grp = evalAggregateExpression expr (DatabaseTable colIds grp)
 
-groupRowsBy :: SortConfiguration -> [Expression] -> DatabaseTable -> GroupedTable
+groupRowsBy :: SortConfiguration -> [Expression] -> SimpleTable -> GroupedTable
 groupRowsBy sortCfg groupByExprs dbTable =
-    GroupedTable (columnIdentifiers dbTable) rowGroups
+    DatabaseTable (columnIdentifiers dbTable) rowGroups
     where
         tblRows = tableRows dbTable
         
@@ -400,7 +400,7 @@ groupRowsBy sortCfg groupByExprs dbTable =
 
 -- | Evaluate the FROM table part, and returns the FROM table. Also returns
 --   a mapping of new table names from aliases etc.
-evalTableExpression :: SortConfiguration -> TableExpression -> (Map.Map String DatabaseTable) -> DatabaseTable
+evalTableExpression :: SortConfiguration -> TableExpression -> (Map.Map String SimpleTable) -> SimpleTable
 evalTableExpression sortCfg tblExpr tableMap =
     case tblExpr of
         TableIdentifier tblName maybeTblAlias ->
@@ -435,7 +435,7 @@ evalTableExpression sortCfg tblExpr tableMap =
                 maybeRename maybeTblAlias joinedTbl
     
     where
-        maybeRename :: (Maybe String) -> DatabaseTable -> DatabaseTable
+        maybeRename :: (Maybe String) -> SimpleTable -> SimpleTable
         maybeRename Nothing table = table
         maybeRename (Just newName) table = table {
             columnIdentifiers = map (\colId -> colId {maybeTableName = Just newName}) (columnIdentifiers table)}
@@ -465,20 +465,20 @@ onPartFormattingError =
 
 -- | perform an inner join using the given join indices on the given
 --   tables
-innerJoin :: [(Int, Int)] -> DatabaseTable -> DatabaseTable -> DatabaseTable
+innerJoin :: [(Int, Int)] -> SimpleTable -> SimpleTable -> SimpleTable
 innerJoin joinIndices leftJoinTbl rightJoinTbl = DatabaseTable {
     columnIdentifiers = (columnIdentifiers leftJoinTbl) ++ (columnIdentifiers rightJoinTbl),
     tableRows = joinTables joinIndices (tableRows leftJoinTbl) (tableRows rightJoinTbl)}
 
 -- | perform a cross join using the given join indices on the given
 --   tables
-crossJoin :: DatabaseTable -> DatabaseTable -> DatabaseTable
+crossJoin :: SimpleTable -> SimpleTable -> SimpleTable
 crossJoin leftJoinTbl rightJoinTbl = DatabaseTable {
     columnIdentifiers = (columnIdentifiers leftJoinTbl) ++ (columnIdentifiers rightJoinTbl),
     tableRows = crossJoinTables (tableRows leftJoinTbl) (tableRows rightJoinTbl)}
 
 -- | convert the column ID pairs into index pairs
-joinColumnIndices :: DatabaseTable -> DatabaseTable -> [(ColumnIdentifier, ColumnIdentifier)] -> [(Int, Int)]
+joinColumnIndices :: SimpleTable -> SimpleTable -> [(ColumnIdentifier, ColumnIdentifier)] -> [(Int, Int)]
 joinColumnIndices leftJoinTbl rightJoinTbl joinCols =
     let
         leftHeader = columnIdentifiers leftJoinTbl
@@ -506,14 +506,14 @@ maybeIdPairToIndexPair leftColIds rightColIds (leftColId, rightColId) = do
     rightIndex <- findIndex (== rightColId) rightColIds
     return (leftIndex, rightIndex)
 
-evaluateColumnSelections :: [ColumnSelection] -> DatabaseTable -> DatabaseTable
+evaluateColumnSelections :: [ColumnSelection] -> SimpleTable -> SimpleTable
 evaluateColumnSelections colSelections dbTable =
     let
         selectionTbls = map ($ dbTable) (map evaluateColumnSelection colSelections)
     in
         foldl1' tableConcat selectionTbls
 
-tableConcat :: DatabaseTable -> DatabaseTable -> DatabaseTable
+tableConcat :: SimpleTable -> SimpleTable -> SimpleTable
 tableConcat dbTable1 dbTable2 =
     let
         concatIds = (columnIdentifiers dbTable1) ++ (columnIdentifiers dbTable2)
@@ -521,21 +521,21 @@ tableConcat dbTable1 dbTable2 =
     in
         DatabaseTable concatIds concatRows
 
-evaluateAggregateColumnSelections :: [ColumnSelection] -> GroupedTable -> DatabaseTable
+evaluateAggregateColumnSelections :: [ColumnSelection] -> GroupedTable -> SimpleTable
 evaluateAggregateColumnSelections colSelections tblGroups =
     let
         selectionTbls = map ($ tblGroups) (map evaluateAggregateColumnSelection colSelections)
     in
         foldl1' tableConcat selectionTbls
 
-evaluateAggregateColumnSelection :: ColumnSelection -> GroupedTable -> DatabaseTable
+evaluateAggregateColumnSelection :: ColumnSelection -> GroupedTable -> SimpleTable
 evaluateAggregateColumnSelection AllColumns _ =
     error "* is not allowed for aggregate column selections"
 evaluateAggregateColumnSelection (AllColumnsFrom srcTblName) _ =
     error $ srcTblName ++ ".* is not allowed for aggregate column selections"
 evaluateAggregateColumnSelection (ExpressionColumn expr maybeAlias) groupedTbl =
     let
-        tbls = map makeTbl (tableGroups groupedTbl)
+        tbls = map makeTbl (tableRows groupedTbl)
         evaluatedExprs = map (evalAggregateExpression expr) tbls
         exprColId = case maybeAlias of
             Nothing     -> expressionIdentifier expr
@@ -543,9 +543,9 @@ evaluateAggregateColumnSelection (ExpressionColumn expr maybeAlias) groupedTbl =
     in
         DatabaseTable [exprColId] (transpose [evaluatedExprs])
     where
-        makeTbl grp = DatabaseTable (groupColumnIdentifiers groupedTbl) grp
+        makeTbl grp = DatabaseTable (columnIdentifiers groupedTbl) grp
 
-evaluateColumnSelection :: ColumnSelection -> DatabaseTable -> DatabaseTable
+evaluateColumnSelection :: ColumnSelection -> SimpleTable -> SimpleTable
 evaluateColumnSelection AllColumns dbTable = dbTable
 evaluateColumnSelection (AllColumnsFrom srcTblName) dbTable =
     let
@@ -584,7 +584,7 @@ columnMatches queryColumn referenceColumn =
     queryColumn == referenceColumn
 
 -- | filters the database's table rows on the given expression
-filterRowsBy :: Expression -> DatabaseTable -> DatabaseTable
+filterRowsBy :: Expression -> SimpleTable -> SimpleTable
 filterRowsBy filterExpr table =
     table {tableRows = filter myBoolEvalExpr (tableRows table)}
     where myBoolEvalExpr row =
@@ -592,16 +592,16 @@ filterRowsBy filterExpr table =
 
 filterGroupsBy :: Expression -> GroupedTable -> GroupedTable
 filterGroupsBy expr groupedTbl =
-    groupedTbl {tableGroups = map tableRows filteredTbls}
+    groupedTbl {tableRows = map tableRows filteredTbls}
     where
-        makeTbl grp = DatabaseTable (groupColumnIdentifiers groupedTbl) grp
+        makeTbl grp = DatabaseTable (columnIdentifiers groupedTbl) grp
         filterFunc = coerceBool . evalAggregateExpression expr
-        filteredTbls = filter filterFunc (map makeTbl (tableGroups groupedTbl))
+        filteredTbls = filter filterFunc (map makeTbl (tableRows groupedTbl))
 
 -- | evaluate the given expression against a table
 --   TODO need better error detection and reporting for non-aggregate
 --   expressions
-evalAggregateExpression :: Expression -> DatabaseTable -> EvaluatedExpression
+evalAggregateExpression :: Expression -> SimpleTable -> EvaluatedExpression
 evalAggregateExpression (StringConstantExpression string) _ = StringExpression string
 evalAggregateExpression (IntegerConstantExpression int) _   = IntExpression int
 evalAggregateExpression (RealConstantExpression real) _     = RealExpression real
