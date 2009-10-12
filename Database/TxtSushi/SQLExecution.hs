@@ -113,7 +113,7 @@ instance Binary EvaluatedExpression where
             1 -> get >>= return . RealExpression
             2 -> get >>= return . IntExpression
             3 -> get >>= return . BoolExpression
-            _ -> error $ "unexpected type word value: " ++ show typeWord
+            _ -> error $ "Internal Error: unexpected type word value: " ++ show typeWord
 
 coerceString :: EvaluatedExpression -> String
 coerceString (StringExpression string)  = string
