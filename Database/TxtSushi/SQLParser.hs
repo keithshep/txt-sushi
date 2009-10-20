@@ -842,7 +842,7 @@ parseIdentifier = do
     ((eatSpacesAfter parseId) `genExcept` parseReservedWord) <?> "identifier"
 
 -- | quoted text which allows escaping by doubling the quote char
---   like "escaped quote char here:"""
+--   like \"escaped quote char here:\"\"\"
 quotedText :: Bool -> Char -> GenParser Char st String
 quotedText allowEmpty quoteChar = do
     let quote = char quoteChar
