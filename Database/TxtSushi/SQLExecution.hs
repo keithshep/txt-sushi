@@ -468,7 +468,10 @@ onPartFormattingError =
 innerJoin :: [(Int, Int)] -> SimpleTable -> SimpleTable -> SimpleTable
 innerJoin joinIndices leftJoinTbl rightJoinTbl = DatabaseTable {
     columnIdentifiers = (columnIdentifiers leftJoinTbl) ++ (columnIdentifiers rightJoinTbl),
-    tableRows = joinTables joinIndices (tableRows leftJoinTbl) (tableRows rightJoinTbl)}
+    tableRows = joinTables
+                    [((!! i), (!! j)) | (i, j) <- joinIndices]
+                    (tableRows leftJoinTbl)
+                    (tableRows rightJoinTbl)}
 
 -- | perform a cross join using the given join indices on the given
 --   tables
