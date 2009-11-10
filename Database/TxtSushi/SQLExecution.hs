@@ -463,22 +463,28 @@ onPartFormattingError =
             "joined together by \"AND\" like: " ++
             "\"tbl1.id1 = table2.id1 AND tbl1.firstname = tbl2.name\""
 
+unzipRows :: [([a], [a])] -> [[a]]
+unzipRows = map $ uncurry (++)
+
 -- | perform an inner join using the given join indices on the given
 --   tables
 innerJoin :: [(Int, Int)] -> SimpleTable -> SimpleTable -> SimpleTable
 innerJoin joinIndices leftJoinTbl rightJoinTbl = DatabaseTable {
     columnIdentifiers = (columnIdentifiers leftJoinTbl) ++ (columnIdentifiers rightJoinTbl),
-    tableRows = joinTables
-                    [((!! i), (!! j)) | (i, j) <- joinIndices]
-                    (tableRows leftJoinTbl)
-                    (tableRows rightJoinTbl)}
+    tableRows =  unzipRows $ joinTables
+        (\x -> map ($ x) [(!! i) | i <- map fst joinIndices])
+        (tableRows leftJoinTbl)
+        (\x -> map ($ x) [(!! i) | i <- map snd joinIndices])
+        (tableRows rightJoinTbl)}
 
 -- | perform a cross join using the given join indices on the given
 --   tables
 crossJoin :: SimpleTable -> SimpleTable -> SimpleTable
 crossJoin leftJoinTbl rightJoinTbl = DatabaseTable {
     columnIdentifiers = (columnIdentifiers leftJoinTbl) ++ (columnIdentifiers rightJoinTbl),
-    tableRows = crossJoinTables (tableRows leftJoinTbl) (tableRows rightJoinTbl)}
+    tableRows = unzipRows $ crossJoinTables
+        (tableRows leftJoinTbl)
+        (tableRows rightJoinTbl)}
 
 -- | convert the column ID pairs into index pairs
 joinColumnIndices :: SimpleTable -> SimpleTable -> [(ColumnIdentifier, ColumnIdentifier)] -> [(Int, Int)]
