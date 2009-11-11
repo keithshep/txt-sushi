@@ -23,6 +23,7 @@ import Data.List
 import qualified Data.Map as Map
 import Text.Regex.Posix
 
+import Database.TxtSushi.EvaluatedExpression
 import Database.TxtSushi.ExternalSort
 import Database.TxtSushi.SQLParser
 import Database.TxtSushi.Transform
@@ -52,119 +53,6 @@ data DatabaseTable d = DatabaseTable {
 type SimpleTable = DatabaseTable EvaluatedExpression
 
 type GroupedTable = DatabaseTable [EvaluatedExpression]
-
-data EvaluatedExpression =
-    StringExpression    String |
-    RealExpression      Double |
-    IntExpression       Int |
-    BoolExpression      Bool deriving Show
-
--- order evaluated expressions using our type coercion rules where possible
-instance Ord EvaluatedExpression where
-    compare expr1@(RealExpression _) expr2 = expr1 `realCompare` expr2
-    compare expr1 expr2@(RealExpression _) = expr1 `realCompare` expr2
-    
-    compare expr1@(IntExpression _) expr2 = expr1 `intCompare` expr2
-    compare expr1 expr2@(IntExpression _) = expr1 `intCompare` expr2
-    
-    compare expr1@(BoolExpression _) expr2 = expr1 `boolCompare` expr2
-    compare expr1 expr2@(BoolExpression _) = expr1 `boolCompare` expr2
-    
-    compare expr1 expr2 = expr1 `stringCompare` expr2
-
-realCompare :: EvaluatedExpression -> EvaluatedExpression -> Ordering
-realCompare expr1 expr2 =
-    maybeCoerceReal expr1 `myCompare` maybeCoerceReal expr2
-    where
-        myCompare (Just r1) (Just r2) = r1 `compare` r2
-        myCompare _ _ = expr1 `stringCompare` expr2
-
-intCompare :: EvaluatedExpression -> EvaluatedExpression -> Ordering
-intCompare expr1 expr2 =
-    maybeCoerceInt expr1 `myCompare` maybeCoerceInt expr2
-    where
-        myCompare (Just i1) (Just i2) = i1 `compare` i2
-        myCompare _ _ = expr1 `realCompare` expr2
-
-boolCompare :: EvaluatedExpression -> EvaluatedExpression -> Ordering
-boolCompare expr1 expr2 =
-    maybeCoerceBool expr1 `myCompare` maybeCoerceBool expr2
-    where
-        myCompare (Just b1) (Just b2) = b1 `compare` b2
-        myCompare _ _ = expr1 `stringCompare` expr2
-
-stringCompare :: EvaluatedExpression -> EvaluatedExpression -> Ordering
-stringCompare expr1 expr2 = coerceString expr1 `compare` coerceString expr2
-
--- base equality off of the Ord definition. pretty simple huh?
-instance Eq EvaluatedExpression where
-    expr1 == expr2 = expr1 `compare` expr2 == EQ
-
-instance Binary EvaluatedExpression where
-    put (StringExpression  s)   = put (0 :: Word8) >> put s
-    put (RealExpression r)      = put (1 :: Word8) >> put r
-    put (IntExpression i)       = put (2 :: Word8) >> put i
-    put (BoolExpression b)      = put (3 :: Word8) >> put b
-    
-    get = do
-        typeWord <- get :: Get Word8
-        case typeWord of
-            0 -> get >>= return . StringExpression
-            1 -> get >>= return . RealExpression
-            2 -> get >>= return . IntExpression
-            3 -> get >>= return . BoolExpression
-            _ -> error $ "Internal Error: unexpected type word value: " ++ show typeWord
-
-coerceString :: EvaluatedExpression -> String
-coerceString (StringExpression string)  = string
-coerceString (RealExpression real)      = show real
-coerceString (IntExpression int)        = show int
-coerceString (BoolExpression bool)      = if bool then "true" else "false"
-
-maybeCoerceInt :: EvaluatedExpression -> Maybe Int
-maybeCoerceInt (StringExpression string) = maybeReadInt string
-maybeCoerceInt (RealExpression real)     = Just $ floor real -- TOOD: floor OK for negatives too?
-maybeCoerceInt (IntExpression int)       = Just int
-maybeCoerceInt (BoolExpression _)        = Nothing
-
-coerceInt :: EvaluatedExpression -> Int
-coerceInt evalExpr = case maybeCoerceInt evalExpr of
-    Just int -> int
-    Nothing ->
-        error $ "could not convert \"" ++ (coerceString evalExpr) ++
-                "\" to an integer value"
-
-maybeCoerceReal :: EvaluatedExpression -> Maybe Double
-maybeCoerceReal (StringExpression string) = maybeReadReal string
-maybeCoerceReal (RealExpression real)     = Just real
-maybeCoerceReal (IntExpression int)       = Just $ fromIntegral int
-maybeCoerceReal (BoolExpression _)        = Nothing
-
-coerceReal :: EvaluatedExpression -> Double
-coerceReal evalExpr = case maybeCoerceReal evalExpr of
-    Just real -> real
-    Nothing ->
-        error $ "could not convert \"" ++ (coerceString evalExpr) ++
-                "\" to a numeric value"
-
-maybeReadBool :: String -> Maybe Bool
-maybeReadBool boolStr = case map toLower $ trimSpace boolStr of
-    "true"      -> Just True
-    "false"     -> Just False
-    _           -> Nothing
-
-maybeCoerceBool :: EvaluatedExpression -> Maybe Bool
-maybeCoerceBool (StringExpression string) = maybeReadBool string
-maybeCoerceBool (RealExpression _)        = Nothing
-maybeCoerceBool (IntExpression _)         = Nothing
-maybeCoerceBool (BoolExpression bool)     = Just bool
-
-coerceBool :: EvaluatedExpression -> Bool
-coerceBool evalExpr = case maybeCoerceBool evalExpr of
-    Just bool -> bool
-    Nothing ->
-        error $ "could not convert \"" ++ (coerceString evalExpr) ++
-                "\" to a boolean value"
 
 -- convert a text table to a database table by using the 1st row as column IDs
 textTableToDatabaseTable :: String -> [[String]] -> SimpleTable
