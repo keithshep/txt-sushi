@@ -128,8 +128,6 @@ data ColumnSelection =
     ExpressionColumn {
         expression :: Expression,
         maybeColumnAlias :: Maybe String}
-    --QualifiedColumn {
-    --    qualifiedColumnId :: ColumnIdentifier}
     deriving (Show, Ord, Eq)
 
 data ColumnIdentifier =
