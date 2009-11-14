@@ -153,7 +153,9 @@ data Expression =
     IntConstantExpression {
         intConstant :: Int} |
     RealConstantExpression {
-        realConstant :: Double}
+        realConstant :: Double} |
+    BoolConstantExpression {
+        boolConstant :: Bool}
     deriving (Show, Ord, Eq)
 
 -- | an aggregate function is one whose min function count is 1 and whose
@@ -190,6 +192,8 @@ expressionIdentifier (IntConstantExpression int) =
     ColumnIdentifier Nothing (show int)
 expressionIdentifier (RealConstantExpression real) =
     ColumnIdentifier Nothing (show real)
+expressionIdentifier (BoolConstantExpression bool) =
+    ColumnIdentifier Nothing (map toUpper $ show bool)
 
 needsParens :: Expression -> Bool
 needsParens (FunctionExpression _ _) = True
@@ -450,6 +454,7 @@ parseExpression =
 parseAnyNonInfixExpression :: GenParser Char st Expression
 parseAnyNonInfixExpression =
     parenthesize parseExpression <|>
+    parseBoolConstant <|>
     parseStringConstant <|>
     try parseRealConstant <|>
     try parseIntConstant <|>
@@ -459,6 +464,11 @@ parseAnyNonInfixExpression =
     parseNotFunction <|>
     parseCountStar <|>
     (parseColumnId >>= return . ColumnExpression)
+
+parseBoolConstant :: GenParser Char st Expression
+parseBoolConstant =
+    (parseToken "TRUE" >> return (BoolConstantExpression True)) <|>
+    (parseToken "FALSE" >> return (BoolConstantExpression False))
 
 parseStringConstant :: GenParser Char st Expression
 parseStringConstant =
@@ -904,7 +914,8 @@ reservedWords =
     map functionName normalSyntaxFunctions ++
     map functionName (concat infixFunctions) ++
     map functionName specialFunctions ++
-    ["BY","CROSS", "FROM", "FOR", "GROUP", "HAVING", "INNER", "JOIN", "ON", "ORDER", "SELECT", "WHERE"]
+    ["BY","CROSS", "FROM", "FOR", "GROUP", "HAVING", "INNER", "JOIN", "ON",
+     "ORDER", "SELECT", "WHERE", "TRUE", "FALSE"]
 
 -- | tries parsing both the upper and lower case versions of the given string
 upperOrLower :: String -> GenParser Char st String

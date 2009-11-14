@@ -499,9 +499,10 @@ filterGroupsBy expr groupedTbl =
 --   TODO need better error detection and reporting for non-aggregate
 --   expressions
 evalAggregateExpression :: Expression -> SimpleTable -> EvaluatedExpression
-evalAggregateExpression (StringConstantExpression string) _ = StringExpression string
-evalAggregateExpression (IntConstantExpression int) _       = IntExpression int
-evalAggregateExpression (RealConstantExpression real) _     = RealExpression real
+evalAggregateExpression (BoolConstantExpression     b) _    = BoolExpression    b
+evalAggregateExpression (StringConstantExpression   s) _    = StringExpression  s
+evalAggregateExpression (IntConstantExpression      i) _    = IntExpression     i
+evalAggregateExpression (RealConstantExpression     r) _    = RealExpression    r
 evalAggregateExpression (ColumnExpression col) dbTable =
     case findIndex (columnMatches col) (columnIdentifiers dbTable) of
         Just colIndex -> (head $ tableRows dbTable) !! colIndex
@@ -522,9 +523,10 @@ evalAggregateExpression (FunctionExpression sqlFun funArgs) dbTable =
 
 -- | evaluate the given expression against a table row
 evalExpression :: Expression -> [ColumnIdentifier] -> [EvaluatedExpression] -> EvaluatedExpression
-evalExpression (StringConstantExpression string) _ _    = StringExpression string
-evalExpression (IntConstantExpression int) _ _          = IntExpression int
-evalExpression (RealConstantExpression real) _ _        = RealExpression real
+evalExpression (BoolConstantExpression      b) _ _  = BoolExpression    b
+evalExpression (StringConstantExpression    s) _ _  = StringExpression  s
+evalExpression (IntConstantExpression       i) _ _  = IntExpression     i
+evalExpression (RealConstantExpression      r) _ _  = RealExpression    r
 evalExpression (ColumnExpression col) columnIds tblRow =
     case findIndex (columnMatches col) columnIds of
         Just colIndex -> tblRow !! colIndex
