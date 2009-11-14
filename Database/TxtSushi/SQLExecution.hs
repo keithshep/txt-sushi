@@ -500,7 +500,7 @@ filterGroupsBy expr groupedTbl =
 --   expressions
 evalAggregateExpression :: Expression -> SimpleTable -> EvaluatedExpression
 evalAggregateExpression (StringConstantExpression string) _ = StringExpression string
-evalAggregateExpression (IntegerConstantExpression int) _   = IntExpression int
+evalAggregateExpression (IntConstantExpression int) _       = IntExpression int
 evalAggregateExpression (RealConstantExpression real) _     = RealExpression real
 evalAggregateExpression (ColumnExpression col) dbTable =
     case findIndex (columnMatches col) (columnIdentifiers dbTable) of
@@ -523,7 +523,7 @@ evalAggregateExpression (FunctionExpression sqlFun funArgs) dbTable =
 -- | evaluate the given expression against a table row
 evalExpression :: Expression -> [ColumnIdentifier] -> [EvaluatedExpression] -> EvaluatedExpression
 evalExpression (StringConstantExpression string) _ _    = StringExpression string
-evalExpression (IntegerConstantExpression int) _ _      = IntExpression int
+evalExpression (IntConstantExpression int) _ _          = IntExpression int
 evalExpression (RealConstantExpression real) _ _        = RealExpression real
 evalExpression (ColumnExpression col) columnIds tblRow =
     case findIndex (columnMatches col) columnIds of

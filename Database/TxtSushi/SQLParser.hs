@@ -152,7 +152,7 @@ data Expression =
         column :: ColumnIdentifier} |
     StringConstantExpression {
         stringConstant :: String} |
-    IntegerConstantExpression {
+    IntConstantExpression {
         intConstant :: Int} |
     RealConstantExpression {
         realConstant :: Double}
@@ -188,7 +188,7 @@ expressionIdentifier (FunctionExpression func args) =
 expressionIdentifier (ColumnExpression col) = col
 expressionIdentifier (StringConstantExpression str) =
     ColumnIdentifier Nothing ("\"" ++ str ++ "\"")
-expressionIdentifier (IntegerConstantExpression int) =
+expressionIdentifier (IntConstantExpression int) =
     ColumnIdentifier Nothing (show int)
 expressionIdentifier (RealConstantExpression real) =
     ColumnIdentifier Nothing (show real)
@@ -468,7 +468,7 @@ parseStringConstant =
     (return . StringConstantExpression)
 
 parseIntConstant :: GenParser Char st Expression
-parseIntConstant = parseInt >>= return . IntegerConstantExpression
+parseIntConstant = parseInt >>= return . IntConstantExpression
 
 parseInt :: GenParser Char st Int
 parseInt = eatSpacesAfter . try . (withoutTrailing alphaNum) $ do
@@ -794,7 +794,7 @@ parseCountStar = do
     where
         parseStar = do
             parenthesize $ parseToken "*"
-            return $ FunctionExpression countFunction [IntegerConstantExpression 0]
+            return $ FunctionExpression countFunction [IntConstantExpression 0]
 
 --------------------------------------------------------------------------------
 -- Parse utility functions
