@@ -698,6 +698,42 @@ data DatabaseTable2 a = DatabaseTable2 {
     -- | is the given identifier in scope for this table
     isInScope :: ColumnIdentifier -> Bool}
 
+addAliases :: DatabaseTable2 a -> [(String, Expression)] -> DatabaseTable2 a
+addAliases tbl aliases =
+    tbl {
+        evaluationContext = aliasedContext,
+        isInScope = aliasedScope}
+    where
+        aliasMap = Map.fromList aliases
+        
+        aliasedScope colId@(ColumnIdentifier (Just _) _) = isInScope tbl colId
+        aliasedScope colId@(ColumnIdentifier Nothing colName) =
+            Map.member colName aliasMap || isInScope tbl colId
+        
+        aliasedContext colId@(ColumnIdentifier (Just _) _) = evaluationContext tbl colId
+        aliasedContext colId@(ColumnIdentifier Nothing colName) =
+            case Map.lookup colName aliasMap of
+                Nothing     -> evaluationContext tbl colId
+                Just expr   -> evaluateWithContext aliasedContext expr
+
+renameDbTable :: DatabaseTable2 a -> String -> DatabaseTable2 a
+renameDbTable tbl name =
+    tbl {
+        evaluationContext = renameContext,
+        isInScope = renameScope}
+    where
+        renameScope colId@(ColumnIdentifier Nothing _) = isInScope tbl colId
+        renameScope colId@(ColumnIdentifier (Just tblName) colName)
+            | tblName == name   = isInScope tbl (ColumnIdentifier Nothing colName)
+            | otherwise         = False
+        
+        renameContext colId@(ColumnIdentifier Nothing _) = evaluationContext tbl colId
+        renameContext colId@(ColumnIdentifier (Just tblName) colName)
+            | tblName == name   = evaluationContext tbl (ColumnIdentifier Nothing colName)
+            | otherwise         = error $
+                "Error evaluating " ++ show colId ++ ": the given table name (" ++
+                tblName ++ ") is out of scope"
+
 evaluateWithContext :: EvaluationContext a -> Expression -> a -> NestedDataGroups EvaluatedExpression
 evaluateWithContext _ (StringConstantExpression s) _ = SingleElement (StringExpression s)
 evaluateWithContext _ (RealConstantExpression r) _   = SingleElement (RealExpression r)
