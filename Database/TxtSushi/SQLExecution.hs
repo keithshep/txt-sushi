@@ -19,6 +19,7 @@ module Database.TxtSushi.SQLExecution (
 
 import Data.Binary
 import Data.Char
+import Data.Function
 import Data.List
 import qualified Data.Map as Map
 import Text.Regex.Posix
@@ -636,3 +637,149 @@ evalSQLFunction sqlFun evaluatedArgs
 trimSpace :: String -> String
 trimSpace = f . f
     where f = reverse . dropWhile isSpace
+
+data NestedDataGroups e =
+    SingleElement {element :: e} |
+    GroupedData {nestedGroups :: ([NestedDataGroups e])} deriving (Ord, Eq, Show)
+
+instance Functor NestedDataGroups where
+    fmap f (SingleElement e) = SingleElement (f e)
+    fmap f (GroupedData grps) = GroupedData $ map (fmap f) grps
+
+aggregateDataGroups :: ([a] -> b) -> NestedDataGroups a -> NestedDataGroups b
+aggregateDataGroups f ndg = SingleElement $ f (flattenGroups ndg)
+
+flattenGroups :: NestedDataGroups e -> [e]
+flattenGroups (SingleElement myElem) = [myElem]
+flattenGroups (GroupedData grps) = concatMap flattenGroups grps
+
+-- | this is kind of like a zip for the nested data groups. Note that
+--   if it's given a single element on one side and grouped data on the other
+--   the result will take the shape of the grouped data
+zipGroupsWith ::
+    (a -> b -> c)
+    -> NestedDataGroups a
+    -> NestedDataGroups b
+    -> NestedDataGroups c
+zipGroupsWith f (SingleElement e1) (SingleElement e2) = SingleElement $ f e1 e2
+zipGroupsWith f (SingleElement e) gd@(GroupedData _) = fmap (f e) gd
+zipGroupsWith f gd@(GroupedData _) (SingleElement e) = fmap ((flip f) e) gd
+zipGroupsWith f (GroupedData g1) (GroupedData g2) =
+    GroupedData $ zipWith (zipGroupsWith f) g1 g2
+
+-- | takes a list of data groups which can have different shapes and returns
+--   a single group of lists which obviously must have the same shape
+normalizeGroups :: [NestedDataGroups a] -> NestedDataGroups [a]
+normalizeGroups grps =
+    foldl
+        -- this function will reshape and concatinate as it's folded
+        (zipGroupsWith (++))
+        
+        -- an empty single element is the starting point for the fold
+        (SingleElement [])
+        
+        -- fmap is from NestedDataGroups and return from the list monad
+        (map (fmap return) grps)
+
+type EvaluationContext a = ColumnIdentifier -> a -> NestedDataGroups EvaluatedExpression
+
+-- | a data type for representing a database table
+data DatabaseTable2 a = DatabaseTable2 {
+    
+    -- | column expressions with their evaluation contexts
+    columnsWithContext :: [(Expression, EvaluationContext a)],
+    
+    -- | the evaluation context for this table
+    evaluationContext :: EvaluationContext a,
+    
+    -- | the data in this table
+    tableData :: [a],
+    
+    -- | is the given identifier in scope for this table
+    isInScope :: ColumnIdentifier -> Bool}
+
+evaluateWithContext :: EvaluationContext a -> Expression -> a -> NestedDataGroups EvaluatedExpression
+evaluateWithContext _ (StringConstantExpression s) _ = SingleElement (StringExpression s)
+evaluateWithContext _ (RealConstantExpression r) _   = SingleElement (RealExpression r)
+evaluateWithContext _ (IntConstantExpression i) _    = SingleElement (IntExpression i)
+evaluateWithContext _ (BoolConstantExpression b) _   = SingleElement (BoolExpression b)
+evaluateWithContext ctxt (ColumnExpression colId) row = ctxt colId row
+evaluateWithContext ctxt (FunctionExpression sqlFun args) row =
+    case (isAggregate sqlFun, args) of
+        -- if its an aggregate function with a single arg use aggregate evaluation
+        (True, [_]) -> aggregateEval
+        
+        -- other wise just evaluate it as a single function
+        _           -> standardEval
+    where
+        normEvaldArgs = normalizeGroups [(evaluateWithContext ctxt) arg row | arg <- args]
+        aggregateEval =
+            SingleElement $ evalSQLFunction sqlFun (concat (flattenGroups normEvaldArgs))
+        standardEval = fmap (evalSQLFunction sqlFun) normEvaldArgs
+
+toGroupContext :: EvaluationContext a -> EvaluationContext [a]
+toGroupContext ctxt = grpCtxt
+    where grpCtxt colId rowGrp = GroupedData $ map (ctxt colId) rowGrp
+
+groupDbTable :: (Binary a) =>
+    SortConfiguration
+    -> [Expression]
+    -> DatabaseTable2 a
+    -> DatabaseTable2 [a]
+groupDbTable sortCfg grpExprs tbl =
+    tbl {
+        columnsWithContext = [(expr, toGroupContext ctxt) | (expr, ctxt) <- columnsWithContext tbl],
+        evaluationContext = toGroupContext $ evaluationContext tbl,
+        tableData = groupedData}
+    where
+        eval = evaluateWithContext (evaluationContext tbl)
+        rowOrd row = [eval expr row | expr <- grpExprs]
+        sortedData = sortByCfg sortCfg (compare `on` rowOrd) (tableData tbl)
+        groupedData = groupBy ((==) `on` rowOrd) sortedData
+
+joinDbTables :: (Binary a, Binary b) =>
+    SortConfiguration
+    -> [(Expression, Expression)]
+    -> DatabaseTable2 a
+    -> DatabaseTable2 b
+    -> DatabaseTable2 (a, b)
+joinDbTables sortCfg joinExprs fstTable sndTable =
+    zipDbTables
+        fstTable {tableData = map fst joinedData}
+        sndTable {tableData = map snd joinedData}
+    where
+        fstEval = evaluateWithContext (evaluationContext fstTable)
+        fstRowOrd row = [fstEval expr row | expr <- map fst joinExprs]
+        
+        sndEval = evaluateWithContext (evaluationContext sndTable)
+        sndRowOrd row = [sndEval expr row | expr <- map snd joinExprs]
+        
+        sortedFstData = sortByCfg sortCfg (compare `on` fstRowOrd) (tableData fstTable)
+        sortedSndData = sortByCfg sortCfg (compare `on` sndRowOrd) (tableData sndTable)
+        
+        joinedData = joinPresortedTables fstRowOrd sortedFstData sndRowOrd sortedSndData
+
+zipDbTables :: DatabaseTable2 a -> DatabaseTable2 b -> DatabaseTable2 (a, b)
+zipDbTables fstTable sndTable = DatabaseTable2 {
+    columnsWithContext = fstCols ++ sndCols,
+    evaluationContext = evalCtxt,
+    tableData = zip (tableData fstTable) (tableData sndTable),
+    isInScope = isInFstOrSndScope}
+    
+    where
+        isInFstScope = isInScope fstTable
+        isInSndScope = isInScope sndTable
+        isInFstOrSndScope iden = isInFstScope iden || isInSndScope iden
+        
+        toFstCtxt ctxt colId row = ctxt colId (fst row)
+        toSndCtxt ctxt colId row = ctxt colId (snd row)
+        
+        fstCols = [(expr, toFstCtxt ctxt) | (expr, ctxt) <- columnsWithContext fstTable]
+        sndCols = [(expr, toSndCtxt ctxt) | (expr, ctxt) <- columnsWithContext sndTable]
+        
+        evalCtxt colId row =
+            case (isInFstScope colId, isInSndScope colId) of
+                (True, False)   -> evaluationContext fstTable colId (fst row)
+                (False, True)   -> evaluationContext sndTable colId (snd row)
+                (True, True)    -> error $ "Error: ambiguous ID: " ++ show colId
+                (False, False)  -> error $ "Error: not in scope: " ++ show colId
