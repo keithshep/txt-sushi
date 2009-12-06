@@ -18,7 +18,7 @@ runTxtSushiTests _ _ _ _ = do
         -- test statement 1
         stmt1 = SelectStatement {
                     columnSelections = [
-                        ExpressionColumn {expression = ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}},
+                        ExpressionColumn {expression = ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}, maybeColumnAlias = Nothing},
                         AllColumnsFrom {sourceTableName = "table2"}],
                     maybeFromTable = Just (
                         InnerJoin {
@@ -43,7 +43,7 @@ runTxtSushiTests _ _ _ _ = do
         -- test statement 2
         stmt2 = SelectStatement {
                     columnSelections = [
-                        ExpressionColumn {expression = ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}},
+                        ExpressionColumn {expression = ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}, maybeColumnAlias = Nothing},
                         AllColumnsFrom {sourceTableName = "table2"}],
                     maybeFromTable = Just (
                         InnerJoin {
@@ -79,7 +79,7 @@ runTxtSushiTests _ _ _ _ = do
         -- test statement 3
         stmt3 = SelectStatement {
                     columnSelections = [
-                        ExpressionColumn {expression = ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}},
+                        ExpressionColumn {expression = ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}, maybeColumnAlias = Nothing},
                         AllColumnsFrom {sourceTableName = "table2"}],
                     maybeFromTable = Just (
                         InnerJoin {
@@ -121,7 +121,7 @@ runTxtSushiTests _ _ _ _ = do
         -- test statement 4
         stmt4 = SelectStatement {
                     columnSelections = [
-                        ExpressionColumn {expression = ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}},
+                        ExpressionColumn {expression = ColumnExpression {column = ColumnIdentifier {maybeTableName = Just "table1", columnId = "col1"}}, maybeColumnAlias = Nothing},
                         AllColumnsFrom {sourceTableName = "table2"}],
                     maybeFromTable = Just (
                         InnerJoin {
