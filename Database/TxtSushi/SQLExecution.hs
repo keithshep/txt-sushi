@@ -11,24 +11,26 @@
 --
 -----------------------------------------------------------------------------
 
+{-# LANGUAGE ExistentialQuantification #-}
 module Database.TxtSushi.SQLExecution (
     select,
     databaseTableToTextTable,
     textTableToDatabaseTable,
     SortConfiguration(..)) where
 
+import Control.Applicative
 import Data.Binary
 import Data.Char
 import Data.Function
 import Data.List
-import qualified Data.Map as Map
+import qualified Data.Map as M
 import Text.Regex.Posix
 
+import Database.TxtSushi.SQLParser
 import Database.TxtSushi.EvaluatedExpression
 import Database.TxtSushi.ExternalSort
 import Database.TxtSushi.SQLParser
 import Database.TxtSushi.Transform
-import Database.TxtSushi.Util.ListUtil
 
 -- | We will use the sort configuration to determine whether tables should
 --   be sorted external or in memory
@@ -40,263 +42,105 @@ sortByCfg :: (Binary b) => SortConfiguration -> (b -> b -> Ordering) -> [b] -> [
 sortByCfg UseInMemorySort = sortBy
 sortByCfg UseExternalSort = externalSortBy
 
--- | an SQL table data structure
---   TODO: need allColumnsColumnIdentifiers and allColumnsTableRows so that
---         we can filter and order on columns that are selected out. we also
---         should track any column ordering that is in place
-data DatabaseTable d = DatabaseTable {
-    -- | the columns in this table
-    columnIdentifiers :: [ColumnIdentifier],
-    
-    -- | the actual table data
-    tableRows :: [[d]]}
-
-type SimpleTable = DatabaseTable EvaluatedExpression
-
-type GroupedTable = DatabaseTable [EvaluatedExpression]
-
 -- convert a text table to a database table by using the 1st row as column IDs
-textTableToDatabaseTable :: String -> [[String]] -> SimpleTable
-textTableToDatabaseTable tblName (headerNames:tblRows) =
-    DatabaseTable (map makeColId headerNames) (map (map StringExpression) tblRows)
-    where
-        makeColId colName = ColumnIdentifier (Just tblName) colName
+textTableToDatabaseTable :: String -> [[String]] -> BoxedTable
 textTableToDatabaseTable tblName [] =
     error $ "invalid table \"" ++ tblName ++ "\". There is no header row"
+textTableToDatabaseTable tblName (headerNames:tblRows) =
+    BoxedTable DatabaseTable {
+        columnsWithContext = zip (map makeColExpr headerNames) (repeat evalCtxt),
+        evaluationContext = evalCtxt,
+        tableData = tblRows,
+        isInScope = idInHeader}
+    where
+        makeColExpr colName = ColumnExpression $ ColumnIdentifier (Just tblName) colName
+        
+        idInHeader (ColumnIdentifier (Just exprTblName) colName) =
+            if exprTblName == tblName
+                then colName `elem` headerNames
+                else False
+        idInHeader (ColumnIdentifier Nothing colName) = colName `elem` headerNames
+        
+        evalCtxt (ColumnIdentifier (Just exprTblName) colName) row =
+            if exprTblName == tblName
+                then evalCtxtForName colName row
+                else error $ "Failed to find table named: " ++ tblName
+        evalCtxt (ColumnIdentifier Nothing colName) row =
+            evalCtxtForName colName row
+        evalCtxtForName colName row =
+            case elemIndices colName headerNames of
+                [colIndex]  -> SingleElement $ StringExpression (row !! colIndex)
+                []          -> error $ "Failed to find column named: " ++ colName
+                _           -> error $ "Ambiguous column name (found multiple matches): " ++ colName
 
-databaseTableToTextTable :: SimpleTable -> [[String]]
-databaseTableToTextTable dbTable =
-    let
-        headerRow = map columnId (columnIdentifiers dbTable)
-        tailRows = map (map coerceString) (tableRows dbTable)
-    in
-        headerRow:tailRows
-
-{-
-optimizeClassicJoins :: SelectStatement -> SelectStatement
-optimizeClassicJoins selectStmt@(SelectStatement _ (Just fromTbl) (Just whereFilter) _ _) =
-    let (optFromTbl, optMaybeWhereFilter) = optimizeFromWhere Nothing fromTbl whereFilter
-    in  selectStmt {
-            maybeFromTable = Just optFromTbl,
-            maybeWhereFilter = optMaybeWhereFilter}
-optimizeClassicJoins selectStmt = selectStmt
-
-optimizeFromWhere :: Maybe String -> TableExpression -> Maybe Expression -> (TableExpression, Maybe Expression)
-optimizeFromWhere maybeParentAlias _ Nothing =
-    (fromTbl, Just expr)
-optimizeFromWhere maybeParentAlias fromTbl@(InnerJoin leftJoinTbl rightJoinTbl _ maybeChildAlias) (Just expr) =
-    let
-        maybeAlias = case maybeParentAlias of
-            Nothing -> maybeChildAlias
-            Just -  -> maybeParentAlias
-        (optLeftTbl, expr2) = optimizeFromWhere maybeAlias leftJoinTbl expr
-        (optRightTbl, expr3) = optimizeFromWhere maybeAlias rightJoinTbl expr2
-        optFromTbl = fromTbl {
-            leftJoinTable,
-            rightJoinTable}
-    in
-        (optFromTbl, Just expr3)
--}
+databaseTableToTextTable :: BoxedTable -> [[String]]
+databaseTableToTextTable (BoxedTable dbTable) = headerRow : tailRows
+    where
+        headerRow = map (expressionToString . fst) colsWCtxt
+        tailRows = map evalRow (tableData dbTable)
+        
+        colsWCtxt = columnsWithContext dbTable
+        
+        evalRowExpr ctxt colExpr row =
+            coerceString . collapseGroups colExpr $ evaluateWithContext ctxt colExpr row
+        evalRow row =
+            [evalRowExpr ctxt colExpr row | (colExpr, ctxt) <- colsWCtxt]
 
 -- | perform a SQL select with the given select statement on the
 --   given table map
-select :: SortConfiguration -> SelectStatement -> (Map.Map String SimpleTable) -> SimpleTable
+select :: SortConfiguration -> SelectStatement -> (M.Map String BoxedTable) -> BoxedTable
 select sortCfg selectStmt tableMap =
     let
         fromTbl = case maybeFromTable selectStmt of
-            Nothing -> DatabaseTable [] []
+            Nothing -> BoxedTable $ DatabaseTable {
+                columnsWithContext = [],
+                evaluationContext = const . idNotInScopeError,
+                tableData = [] :: [String],
+                isInScope = const False}
             Just fromTblExpr -> evalTableExpression sortCfg fromTblExpr tableMap
         fromTblWithAliases =
-            appendAliasColumns (columnSelections selectStmt) fromTbl
-        filteredTbl = case maybeWhereFilter selectStmt of
-            Nothing -> fromTblWithAliases
-            Just expr -> filterRowsBy expr fromTblWithAliases
+            addAliases fromTbl (extractColumnAliases $ columnSelections selectStmt)
+        filteredTbl = maybeFilterTable (maybeWhereFilter selectStmt) fromTblWithAliases
+        groupedTbl = maybeGroupTable sortCfg selectStmt filteredTbl
     in
-        case maybeGroupByHaving selectStmt of
-            Nothing ->
-                if selectStatementContainsAggregates selectStmt then
-                    -- for the case where we find aggregate functions but
-                    -- no "GROUP BY" part, that means we should apply the
-                    -- aggregate to the table as a single group
-                    finishWithAggregateSelect
-                        sortCfg
-                        selectStmt
-                        (DatabaseTable (columnIdentifiers filteredTbl) [tableRows filteredTbl])
-                else
-                    finishWithNormalSelect sortCfg selectStmt filteredTbl
-            Just groupByPart ->
-                let
-                    tblGroups = performGroupBy sortCfg groupByPart filteredTbl
-                in
-                    finishWithAggregateSelect sortCfg selectStmt tblGroups
+        finishWithNormalSelect sortCfg selectStmt groupedTbl
 
--- TODO this approach wont let you refer to an alias in the column selection
-appendAliasColumns :: [ColumnSelection] -> SimpleTable -> SimpleTable
-appendAliasColumns [] dbTable = dbTable
-appendAliasColumns cols dbTable@(DatabaseTable colIds tblRows) =
-    let colAliasExprs = extractColumnAliases cols
-        -- TODO which is the right fold here?
-        evaluatedColExprsTbl = foldl1' tableConcat (evalAliasCols colAliasExprs)
-    in
-        if null colAliasExprs
-        then dbTable
-        else dbTable `tableConcat` evaluatedColExprsTbl
-    where
-        evalAliasCols :: [(ColumnIdentifier, Expression)] -> [SimpleTable]
-        evalAliasCols [] = []
-        evalAliasCols ((aliasColId, aliasExpr) : tailAliasExprs) =
-            DatabaseTable [aliasColId] [[evalExpression aliasExpr colIds row] | row <- tblRows] :
-            evalAliasCols tailAliasExprs
+maybeGroupTable :: SortConfiguration -> SelectStatement -> BoxedTable -> BoxedTable
+maybeGroupTable sortCfg selectStmt table =
+    case maybeGroupByHaving selectStmt of
+        Nothing ->
+            if selectStatementContainsAggregates selectStmt
+                -- for the case where we find aggregate functions but
+                -- no "GROUP BY" part, that means we should apply the
+                -- aggregate to the table as a single group
+                then singleGroupDbTable table
+                else table
+        Just (groupByPart, maybeHaving) ->
+            let groupedTable = groupDbTable sortCfg groupByPart table
+                groupedTableWithAliases =
+                    addAliases groupedTable (extractColumnAliases $ columnSelections selectStmt)
+            in  maybeFilterTable maybeHaving groupedTableWithAliases
 
-extractColumnAliases :: [ColumnSelection] -> [(ColumnIdentifier, Expression)]
+maybeFilterTable :: Maybe Expression -> BoxedTable -> BoxedTable
+maybeFilterTable Nothing table = table
+maybeFilterTable (Just expr) table = filterRowsBy expr table
+
+extractColumnAliases :: [ColumnSelection] -> [(String, Expression)]
 extractColumnAliases [] = []
 extractColumnAliases ((ExpressionColumn expr (Just alias)) : colsTail) =
-    (ColumnIdentifier Nothing alias, expr) : extractColumnAliases colsTail
-extractColumnAliases xs = extractColumnAliases $ tail xs
-
-finishWithNormalSelect :: SortConfiguration -> SelectStatement -> SimpleTable -> SimpleTable
-finishWithNormalSelect sortCfg selectStmt filteredDbTable =
-    let
-        orderedTbl =
-            orderRowsBy sortCfg (orderByItems selectStmt) filteredDbTable
-        selectedTbl =
-            evaluateColumnSelections (columnSelections selectStmt) orderedTbl
-    in
-        selectedTbl
-
-finishWithAggregateSelect :: SortConfiguration -> SelectStatement -> GroupedTable -> SimpleTable
-finishWithAggregateSelect sortCfg selectStmt aggregateTbls =
-    let
-        orderedTbls =
-            orderGroupsBy sortCfg (orderByItems selectStmt) aggregateTbls
-        selectedTbl =
-            evaluateAggregateColumnSelections (columnSelections selectStmt) orderedTbls
-    in
-        selectedTbl
-
-performGroupBy :: SortConfiguration -> ([Expression], Maybe Expression) -> SimpleTable -> GroupedTable
-performGroupBy sortCfg (groupByExprs, maybeExpr) dbTable =
-    let
-        tblGroups = groupRowsBy sortCfg groupByExprs dbTable
-    in
-        case maybeExpr of
-            Nothing -> tblGroups
-            Just expr -> filterGroupsBy expr tblGroups
-
--- | sorts table rows by the given order by items
-orderRowsBy :: SortConfiguration -> [OrderByItem] -> SimpleTable -> SimpleTable
-orderRowsBy _ [] dbTable = dbTable
-orderRowsBy sortCfg orderBys dbTable =
-    let
-        -- curry in the order and col ID params to make a row comparison function
-        compareRows = compareRowsOnOrderItems orderBys (columnIdentifiers dbTable)
-        sortedRows = sortByCfg sortCfg compareRows (tableRows dbTable)
-    in
-        dbTable {tableRows = sortedRows}
-
-orderGroupsBy :: SortConfiguration -> [OrderByItem] -> GroupedTable -> GroupedTable
-orderGroupsBy _ [] groupedTable = groupedTable
-orderGroupsBy sortCfg orderBys groupedTable =
-    let
-        -- curry in the order and col ID params to make a group comparison function
-        compareGroups = compareGroupsOnOrderItems orderBys (columnIdentifiers groupedTable)
-        sortedGroups = sortByCfg sortCfg compareGroups (tableRows groupedTable)
-    in
-        groupedTable {tableRows = sortedGroups}
-
--- | Compares two rows using the given OrderByItems and column ID's
-compareRowsOnOrderItems :: [OrderByItem] -> [ColumnIdentifier] -> [EvaluatedExpression] -> [EvaluatedExpression] -> Ordering
-compareRowsOnOrderItems orderBys colIds row1 row2 =
-    cascadingOrder $ toOrderList orderBys
-    where
-        toOrderList [] = []
-        toOrderList (orderBy:orderByTail) =
-            (compareRowsOnOrderItem orderBy colIds row1 row2):(toOrderList orderByTail)
-
--- | Compares two rows using the given OrderByItem and column ID's
-compareRowsOnOrderItem :: OrderByItem -> [ColumnIdentifier] -> [EvaluatedExpression] -> [EvaluatedExpression] -> Ordering
-compareRowsOnOrderItem orderBy colIds row1 row2 =
-    let
-        orderExpr = orderExpression orderBy
-        rowComp = compareRowsOnExpression orderExpr colIds row1 row2
-    in
-        if orderAscending orderBy then
-            rowComp
-        else
-            reverseOrdering rowComp
-
-compareGroupsOnOrderItems :: [OrderByItem] -> [ColumnIdentifier] -> [[EvaluatedExpression]] -> [[EvaluatedExpression]] -> Ordering
-compareGroupsOnOrderItems orderBys colIds group1 group2 =
-    cascadingOrder $ toOrderList orderBys
-    where
-        toOrderList [] = []
-        toOrderList (orderBy:orderByTail) =
-            (compareGroupsOnOrderItem orderBy colIds group1 group2):(toOrderList orderByTail)
-
-compareGroupsOnOrderItem :: OrderByItem -> [ColumnIdentifier] -> [[EvaluatedExpression]] -> [[EvaluatedExpression]] -> Ordering
-compareGroupsOnOrderItem orderBy colIds group1 group2 =
-    let
-        orderExpr = orderExpression orderBy
-        grpComp = compareGroupsOnExpression orderExpr colIds group1 group2
-    in
-        if orderAscending orderBy then
-            grpComp
-        else
-            reverseOrdering grpComp
-
--- | reverses the given ordering. pretty CRAZY huh???
-reverseOrdering :: Ordering -> Ordering
-reverseOrdering EQ = EQ
-reverseOrdering LT = GT
-reverseOrdering GT = LT
-
--- | Compares two rows using the given expressions
-compareRowsOnExpressions :: [Expression] -> [ColumnIdentifier] -> [EvaluatedExpression] -> [EvaluatedExpression] -> Ordering
-compareRowsOnExpressions exprs colIds row1 row2 =
-    cascadingOrder $ toOrderList exprs
-    where
-        toOrderList [] = []
-        toOrderList (expr:exprTail) =
-            (compareRowsOnExpression expr colIds row1 row2):(toOrderList exprTail)
-
--- | Compares two rows using the given expression
-compareRowsOnExpression :: Expression -> [ColumnIdentifier] -> [EvaluatedExpression] -> [EvaluatedExpression] -> Ordering
-compareRowsOnExpression expr colIds row1 row2 =
-    let
-        row1Eval = evalExpression expr colIds row1
-        row2Eval = evalExpression expr colIds row2
-    in
-        row1Eval `compare` row2Eval
-
-compareGroupsOnExpression :: Expression -> [ColumnIdentifier] -> [[EvaluatedExpression]] -> [[EvaluatedExpression]] -> Ordering
-compareGroupsOnExpression expr colIds grp1 grp2 =
-    evalExprOn grp1 `compare` evalExprOn grp2
-    where
-        evalExprOn grp = evalAggregateExpression expr (DatabaseTable colIds grp)
-
-groupRowsBy :: SortConfiguration -> [Expression] -> SimpleTable -> GroupedTable
-groupRowsBy sortCfg groupByExprs dbTable =
-    DatabaseTable (columnIdentifiers dbTable) rowGroups
-    where
-        tblRows = tableRows dbTable
-        
-        -- curry in the exprs and col ID params to make a row comparison function
-        compareRows = compareRowsOnExpressions groupByExprs (columnIdentifiers dbTable)
-        row1 `rowsEq` row2 = (row1 `compareRows` row2) == EQ
-        
-        sortedRows = sortByCfg sortCfg compareRows tblRows
-        rowGroups = groupBy rowsEq sortedRows
+    (alias, expr) : extractColumnAliases colsTail
+extractColumnAliases (_:xt) = extractColumnAliases xt
 
 -- | Evaluate the FROM table part, and returns the FROM table. Also returns
 --   a mapping of new table names from aliases etc.
-evalTableExpression :: SortConfiguration -> TableExpression -> (Map.Map String SimpleTable) -> SimpleTable
+evalTableExpression :: SortConfiguration -> TableExpression -> (M.Map String BoxedTable) -> BoxedTable
 evalTableExpression sortCfg tblExpr tableMap =
     case tblExpr of
         TableIdentifier tblName maybeTblAlias ->
             let
                 -- find the from table map (error if missing)
                 noTblError = error $ "failed to find table named " ++ tblName
-                table = Map.findWithDefault noTblError tblName tableMap
+                table = M.findWithDefault noTblError tblName tableMap
             in
                 maybeRename maybeTblAlias table
         
@@ -305,9 +149,8 @@ evalTableExpression sortCfg tblExpr tableMap =
             let
                 leftJoinTbl = evalTableExpression sortCfg leftJoinTblExpr tableMap
                 rightJoinTbl = evalTableExpression sortCfg rightJoinTblExpr tableMap
-                joinCols = extractJoinCols onConditionExpr
-                joinIndices = joinColumnIndices leftJoinTbl rightJoinTbl joinCols
-                joinedTbl = innerJoin joinIndices leftJoinTbl rightJoinTbl
+                joinExprs = extractJoinExprs leftJoinTbl rightJoinTbl onConditionExpr
+                joinedTbl = innerJoinDbTables sortCfg joinExprs leftJoinTbl rightJoinTbl
             in
                 maybeRename maybeTblAlias joinedTbl
         
@@ -319,133 +162,23 @@ evalTableExpression sortCfg tblExpr tableMap =
             let
                 leftJoinTbl = evalTableExpression sortCfg leftJoinTblExpr tableMap
                 rightJoinTbl = evalTableExpression sortCfg rightJoinTblExpr tableMap
-                joinedTbl = crossJoin leftJoinTbl rightJoinTbl
+                joinedTbl = crossJoinDbTables leftJoinTbl rightJoinTbl
             in
                 maybeRename maybeTblAlias joinedTbl
-    
+
+finishWithNormalSelect :: SortConfiguration -> SelectStatement -> BoxedTable -> BoxedTable
+finishWithNormalSelect sortCfg selectStmt filteredDbTable =
+    selectOrderedResults $ sortDbTable sortCfg (orderByItems selectStmt) filteredDbTable
     where
-        maybeRename :: (Maybe String) -> SimpleTable -> SimpleTable
-        maybeRename Nothing table = table
-        maybeRename (Just newName) table = table {
-            columnIdentifiers = map (\colId -> colId {maybeTableName = Just newName}) (columnIdentifiers table)}
+        selectOrderedResults (BoxedTable unboxedOrderedTbl) =
+            BoxedTable unboxedOrderedTbl {columnsWithContext =
+                concatMap (selectionToExpressions unboxedOrderedTbl) (columnSelections selectStmt)}
 
-extractJoinCols :: Expression -> [(ColumnIdentifier, ColumnIdentifier)]
-extractJoinCols (FunctionExpression sqlFunc [arg1, arg2]) =
-    case sqlFunc of
-        SQLFunction "AND" _ _   -> extractJoinCols arg1 ++ extractJoinCols arg2
-        SQLFunction "=" _ _     -> extractJoinColPair arg1 arg2
-        
-        -- Only expecting "AND" or "="
-        _ -> onPartFormattingError
-    where
-        extractJoinColPair (ColumnExpression col1) (ColumnExpression col2) = [(col1, col2)]
-        
-        -- Only expecting "AND" or "="
-        extractJoinColPair _ _ = onPartFormattingError
-
--- Only expecting "AND" or "="
-extractJoinCols _ = onPartFormattingError
-
-onPartFormattingError :: a
-onPartFormattingError =
-    error $ "The \"ON\" part of a join must only contain column equalities " ++
-            "joined together by \"AND\" like: " ++
-            "\"tbl1.id1 = table2.id1 AND tbl1.firstname = tbl2.name\""
-
-unzipRows :: [([a], [a])] -> [[a]]
-unzipRows = map $ uncurry (++)
-
--- | perform an inner join using the given join indices on the given
---   tables
-innerJoin :: [(Int, Int)] -> SimpleTable -> SimpleTable -> SimpleTable
-innerJoin joinIndices leftJoinTbl rightJoinTbl = DatabaseTable {
-    columnIdentifiers = (columnIdentifiers leftJoinTbl) ++ (columnIdentifiers rightJoinTbl),
-    tableRows =  unzipRows $ joinTables
-        (\x -> map ($ x) [(!! i) | i <- map fst joinIndices])
-        (tableRows leftJoinTbl)
-        (\x -> map ($ x) [(!! i) | i <- map snd joinIndices])
-        (tableRows rightJoinTbl)}
-
--- | perform a cross join using the given join indices on the given
---   tables
-crossJoin :: SimpleTable -> SimpleTable -> SimpleTable
-crossJoin leftJoinTbl rightJoinTbl = DatabaseTable {
-    columnIdentifiers = (columnIdentifiers leftJoinTbl) ++ (columnIdentifiers rightJoinTbl),
-    tableRows = unzipRows $ crossJoinTables
-        (tableRows leftJoinTbl)
-        (tableRows rightJoinTbl)}
-
--- | convert the column ID pairs into index pairs
-joinColumnIndices :: SimpleTable -> SimpleTable -> [(ColumnIdentifier, ColumnIdentifier)] -> [(Int, Int)]
-joinColumnIndices leftJoinTbl rightJoinTbl joinCols =
-    let
-        leftHeader = columnIdentifiers leftJoinTbl
-        rightHeader = columnIdentifiers rightJoinTbl
-    in
-        map (idPairToIndexPair leftHeader rightHeader) joinCols
-
--- | convert the column ID pair into an index pair
-idPairToIndexPair :: [ColumnIdentifier] -> [ColumnIdentifier] -> (ColumnIdentifier, ColumnIdentifier) -> (Int, Int)
-idPairToIndexPair leftColIds rightColIds joinColPair@(leftColId, rightColId) =
-    let
-        maybePairInOrder = maybeIdPairToIndexPair leftColIds rightColIds joinColPair
-        maybePairSwapped = maybeIdPairToIndexPair leftColIds rightColIds (rightColId, leftColId)
-    in
-        case maybePairInOrder of
-            Just thePairInOrder -> thePairInOrder
-            Nothing ->
-                case maybePairSwapped of
-                    Just thePairSwapped -> thePairSwapped
-                    Nothing -> error "failed to find given columns"
-
-maybeIdPairToIndexPair :: [ColumnIdentifier] -> [ColumnIdentifier] -> (ColumnIdentifier, ColumnIdentifier) -> Maybe (Int, Int)
-maybeIdPairToIndexPair leftColIds rightColIds (leftColId, rightColId) = do
-    leftIndex <- findIndex (== leftColId) leftColIds
-    rightIndex <- findIndex (== rightColId) rightColIds
-    return (leftIndex, rightIndex)
-
-evaluateColumnSelections :: [ColumnSelection] -> SimpleTable -> SimpleTable
-evaluateColumnSelections colSelections dbTable =
-    let
-        selectionTbls = map ($ dbTable) (map evaluateColumnSelection colSelections)
-    in
-        foldl1' tableConcat selectionTbls
-
-tableConcat :: SimpleTable -> SimpleTable -> SimpleTable
-tableConcat dbTable1 dbTable2 =
-    let
-        concatIds = (columnIdentifiers dbTable1) ++ (columnIdentifiers dbTable2)
-        concatRows = zipWith (++) (tableRows dbTable1) (tableRows dbTable2)
-    in
-        DatabaseTable concatIds concatRows
-
-evaluateAggregateColumnSelections :: [ColumnSelection] -> GroupedTable -> SimpleTable
-evaluateAggregateColumnSelections colSelections tblGroups =
-    let
-        selectionTbls = map ($ tblGroups) (map evaluateAggregateColumnSelection colSelections)
-    in
-        foldl1' tableConcat selectionTbls
-
-evaluateAggregateColumnSelection :: ColumnSelection -> GroupedTable -> SimpleTable
-evaluateAggregateColumnSelection AllColumns _ =
-    error "* is not allowed for aggregate column selections"
-evaluateAggregateColumnSelection (AllColumnsFrom srcTblName) _ =
-    error $ srcTblName ++ ".* is not allowed for aggregate column selections"
-evaluateAggregateColumnSelection (ExpressionColumn expr maybeAlias) groupedTbl =
-    let
-        tbls = map makeTbl (tableRows groupedTbl)
-        evaluatedExprs = map (evalAggregateExpression expr) tbls
-        exprColId = case maybeAlias of
-            Nothing     -> expressionIdentifier expr
-            Just alias  -> (expressionIdentifier expr) {columnId = alias}
-    in
-        DatabaseTable [exprColId] (transpose [evaluatedExprs])
-    where
-        makeTbl grp = DatabaseTable (columnIdentifiers groupedTbl) grp
-
-evaluateColumnSelection :: ColumnSelection -> SimpleTable -> SimpleTable
-evaluateColumnSelection AllColumns dbTable = dbTable
-evaluateColumnSelection (AllColumnsFrom srcTblName) dbTable =
+selectionToExpressions :: DatabaseTable a -> ColumnSelection -> [(Expression, EvaluationContext a)]
+selectionToExpressions dbTable AllColumns = columnsWithContext dbTable
+selectionToExpressions dbTable (AllColumnsFrom srcTblName) =
+    error "Keith wasn't thinking ahead so now we have this error!"
+{-
     let
         colIds = columnIdentifiers dbTable
         indices = findIndices matchesSrcTblName (map maybeTableName colIds)
@@ -457,85 +190,313 @@ evaluateColumnSelection (AllColumnsFrom srcTblName) dbTable =
         matchesSrcTblName Nothing           = False
         matchesSrcTblName (Just tblName)    = tblName == srcTblName
         selectIndices indices xs = [xs !! i | i <- indices]
-evaluateColumnSelection (ExpressionColumn expr maybeAlias) dbTable =
-    let
-        tblColIds = columnIdentifiers dbTable
-        exprColId = case maybeAlias of
-            Nothing     -> expressionIdentifier expr
-            Just alias  -> (expressionIdentifier expr) {columnId = alias}
-        evaluatedExprs = map (evalExpression expr tblColIds) (tableRows dbTable)
-    in
-        DatabaseTable [exprColId] (transpose [evaluatedExprs])
+-}
+selectionToExpressions dbTable (ExpressionColumn expr Nothing) =
+    [(expr, evaluationContext dbTable)]
+selectionToExpressions dbTable (ExpressionColumn _ (Just exprAlias)) =
+    [(ColumnExpression $ ColumnIdentifier Nothing exprAlias, evaluationContext dbTable)]
 
--- | This is a little different that a strict equals compare in that it returns
---   true if the query column has a Nothing table and the column name part
---   matches the reference column's name. Also not that this makes it
---   an asymetric comparison
-columnMatches :: ColumnIdentifier -> ColumnIdentifier -> Bool
-columnMatches (ColumnIdentifier Nothing queryColIdStr) referenceColumn =
-    -- In this case we don't care about the table name so
-    -- just check to make sure that the column names match up
-    queryColIdStr == columnId referenceColumn
+extractJoinExprs :: BoxedTable -> BoxedTable -> Expression -> [(Expression, Expression)]
+extractJoinExprs bTbl1@(BoxedTable tbl1) bTbl2@(BoxedTable tbl2) (FunctionExpression sqlFunc [arg1, arg2]) =
+    case sqlFunc of
+        SQLFunction "=" _ _     -> extractJoinExprPair
+        SQLFunction "AND" _ _   ->
+            extractJoinExprs bTbl1 bTbl2 arg1 ++ extractJoinExprs bTbl1 bTbl2 arg2
+        
+        -- Only expecting "AND" or "="
+        _ -> onPartFormattingError
+    where
+        fromScope tbl expr = anyInScope tbl expr && allInScope tbl expr
+        
+        extractJoinExprPair =
+            if fromScope tbl1 arg1 && fromScope tbl2 arg2
+                then [(arg1, arg2)]
+                else
+                    if fromScope tbl2 arg1 && fromScope tbl1 arg2
+                        then [(arg2, arg1)]
+                        else error $
+                            "The expressions used in the \"ON\" part of a " ++
+                            "table join must use identifiers from each " ++
+                            "of the two join tables like: " ++
+                            "\"tbl1.id1 = table2.id1 AND " ++
+                            "tbl1.firstname = tbl2.name\""
 
-columnMatches queryColumn referenceColumn =
-    -- table name is important here so match on the whole object
-    queryColumn == referenceColumn
+-- Only expecting "AND" or "="
+extractJoinExprs _ _ _ = onPartFormattingError
+
+onPartFormattingError :: a
+onPartFormattingError = error $
+    "The \"ON\" part of a join must only contain " ++
+    "expression equalities joined together by \"AND\" like: " ++
+    "\"tbl1.id1 = table2.id1 AND tbl1.firstname = tbl2.name\""
+
+data NestedDataGroups e =
+    SingleElement e |
+    GroupedData [NestedDataGroups e] deriving (Ord, Eq, Show)
+
+instance Functor NestedDataGroups where
+    fmap f (SingleElement e) = SingleElement (f e)
+    fmap f (GroupedData grps) = GroupedData $ map (fmap f) grps
+
+instance Applicative NestedDataGroups where
+    pure = SingleElement
+    
+    (SingleElement f)  <*> (SingleElement x)  = SingleElement (f x)
+    (SingleElement f)  <*> gd@(GroupedData _) = fmap f gd
+    gd@(GroupedData _) <*> (SingleElement x)  = fmap ($ x) gd
+    (GroupedData fs)   <*> (GroupedData xs)   = GroupedData $ zipWith (<*>) fs xs
+
+--aggregateDataGroups :: ([a] -> b) -> NestedDataGroups a -> NestedDataGroups b
+--aggregateDataGroups f ndg = SingleElement $ f (flattenGroups ndg)
+
+flattenGroups :: NestedDataGroups e -> [e]
+flattenGroups (SingleElement myElem) = [myElem]
+flattenGroups (GroupedData grps) = concatMap flattenGroups grps
+
+collapseGroups ::
+    Expression
+    -> NestedDataGroups EvaluatedExpression
+    -> EvaluatedExpression
+collapseGroups expr grps = case group (flattenGroups grps) of
+    [singleGroup]   -> head singleGroup
+    
+    -- it's an error if there is more than one grouping
+    manyGroups      ->
+        let
+            (elemsToShow, remaining) = splitAt 5 (map head manyGroups)
+            commaSepElems = intercalate ", " (map coerceString elemsToShow)
+            exprStr = expressionToString expr
+            errorMsg =
+                "Error evaluating " ++ exprStr ++
+                ": cannot evaluate an aggregate expression unless all " ++
+                "of the aggregate values match. Found multiple different " ++
+                "values including: " ++ commaSepElems
+        in case remaining of
+            []  -> error errorMsg
+            _   -> error $ errorMsg ++ " etc..."
+
+-- | takes a list of data groups which can have different shapes and returns
+--   a single group of lists which obviously must have the same shape
+normalizeGroups :: [NestedDataGroups a] -> NestedDataGroups [a]
+normalizeGroups grps =
+    foldl
+        -- this function will reshape and concatinate as it's folded
+        (liftA2 (++))
+        
+        -- an empty single element is the starting point for the fold
+        (SingleElement [])
+        
+        -- fmap is from NestedDataGroups and return from the list monad
+        (map (fmap return) grps)
+
+type EvaluationContext a = ColumnIdentifier -> a -> NestedDataGroups EvaluatedExpression
+
+-- | a data type for representing a database table
+data DatabaseTable a = DatabaseTable {
+    
+    -- | column expressions with their evaluation contexts
+    columnsWithContext :: [(Expression, EvaluationContext a)],
+    
+    -- | the evaluation context for this table
+    evaluationContext :: EvaluationContext a,
+    
+    -- | the data in this table
+    tableData :: [a],
+    
+    -- | is the given identifier in scope for this table
+    isInScope :: ColumnIdentifier -> Bool}
+
+allIdentifiers :: Expression -> [ColumnIdentifier]
+allIdentifiers (FunctionExpression _ args) = concatMap allIdentifiers args
+allIdentifiers (ColumnExpression col) = [col]
+allIdentifiers _ = []
+
+allInScope :: DatabaseTable a -> Expression -> Bool
+allInScope tbl expr = all (isInScope tbl) (allIdentifiers expr)
+
+anyInScope :: DatabaseTable a -> Expression -> Bool
+anyInScope tbl expr = any (isInScope tbl) (allIdentifiers expr)
+
+data BoxedTable = forall a. (Binary a) =>
+    BoxedTable (DatabaseTable a)
 
 -- | filters the database's table rows on the given expression
-filterRowsBy :: Expression -> SimpleTable -> SimpleTable
-filterRowsBy filterExpr table =
-    table {tableRows = filter myBoolEvalExpr (tableRows table)}
-    where myBoolEvalExpr row =
-            coerceBool $ evalExpression filterExpr (columnIdentifiers table) row
-
-filterGroupsBy :: Expression -> GroupedTable -> GroupedTable
-filterGroupsBy expr groupedTbl =
-    groupedTbl {tableRows = map tableRows filteredTbls}
+filterRowsBy :: Expression -> BoxedTable -> BoxedTable
+filterRowsBy filterExpr (BoxedTable table) =
+    BoxedTable table {tableData = filter myBoolEvalExpr (tableData table)}
     where
-        makeTbl grp = DatabaseTable (columnIdentifiers groupedTbl) grp
-        filterFunc = coerceBool . evalAggregateExpression expr
-        filteredTbls = filter filterFunc (map makeTbl (tableRows groupedTbl))
+        evalFilterExpr = evaluateWithContext (evaluationContext table) filterExpr
+        myBoolEvalExpr = coerceBool . collapseGroups filterExpr . evalFilterExpr
 
--- | evaluate the given expression against a table
---   TODO need better error detection and reporting for non-aggregate
---   expressions
-evalAggregateExpression :: Expression -> SimpleTable -> EvaluatedExpression
-evalAggregateExpression (BoolConstantExpression     b) _    = BoolExpression    b
-evalAggregateExpression (StringConstantExpression   s) _    = StringExpression  s
-evalAggregateExpression (IntConstantExpression      i) _    = IntExpression     i
-evalAggregateExpression (RealConstantExpression     r) _    = RealExpression    r
-evalAggregateExpression (ColumnExpression col) dbTable =
-    case findIndex (columnMatches col) (columnIdentifiers dbTable) of
-        Just colIndex -> (head $ tableRows dbTable) !! colIndex
-        Nothing -> error $ "Failed to find column named: " ++ (prettyFormatColumn col)
-
-evalAggregateExpression (FunctionExpression sqlFun funArgs) dbTable =
-    evalSQLFunction sqlFun $ if isAggregate sqlFun then manyArgs else aggregatedArgs
+addAliases :: BoxedTable -> [(String, Expression)] -> BoxedTable
+addAliases boxedTbl [] = boxedTbl
+addAliases (BoxedTable tbl) aliases =
+    BoxedTable tbl {
+        evaluationContext = aliasedContext,
+        isInScope = aliasedScope}
     where
-        aggregatedArgs = map (\e -> evalAggregateExpression e dbTable) funArgs
-        manyArgs =
-            let
-                tblColIds = columnIdentifiers dbTable
-                tblRows = tableRows dbTable
-                evaluateExprs expr = map (evalExpression expr tblColIds) tblRows
-                allArgs = concatMap evaluateExprs funArgs
-            in
-                allArgs
+        aliasMap = M.fromList aliases
+        
+        aliasedScope colId@(ColumnIdentifier (Just _) _) = isInScope tbl colId
+        aliasedScope colId@(ColumnIdentifier Nothing colName) =
+            M.member colName aliasMap || isInScope tbl colId
+        
+        aliasedContext colId@(ColumnIdentifier (Just _) _) = evaluationContext tbl colId
+        aliasedContext colId@(ColumnIdentifier Nothing colName) =
+            case M.lookup colName aliasMap of
+                Nothing     -> evaluationContext tbl colId
+                Just expr   -> evaluateWithContext aliasedContext expr
 
--- | evaluate the given expression against a table row
-evalExpression :: Expression -> [ColumnIdentifier] -> [EvaluatedExpression] -> EvaluatedExpression
-evalExpression (BoolConstantExpression      b) _ _  = BoolExpression    b
-evalExpression (StringConstantExpression    s) _ _  = StringExpression  s
-evalExpression (IntConstantExpression       i) _ _  = IntExpression     i
-evalExpression (RealConstantExpression      r) _ _  = RealExpression    r
-evalExpression (ColumnExpression col) columnIds tblRow =
-    case findIndex (columnMatches col) columnIds of
-        Just colIndex -> tblRow !! colIndex
-        Nothing -> error $ "Failed to find column named: " ++ (prettyFormatColumn col)
-evalExpression (FunctionExpression sqlFun funArgs) columnIds tblRow =
-    evalSQLFunction sqlFun (map evalArgExpr funArgs)
+maybeRename :: (Maybe String) -> BoxedTable -> BoxedTable
+maybeRename Nothing boxedTable = boxedTable
+maybeRename (Just newName) boxedTable = renameDbTable boxedTable newName
+
+renameDbTable :: BoxedTable -> String -> BoxedTable
+renameDbTable (BoxedTable tbl) name =
+    BoxedTable tbl {
+        evaluationContext = renameContext,
+        isInScope = renameScope}
     where
-        evalArgExpr expr = evalExpression expr columnIds tblRow
+        renameScope colId@(ColumnIdentifier Nothing _) = isInScope tbl colId
+        renameScope (ColumnIdentifier (Just tblName) colName)
+            | tblName == name   = isInScope tbl (ColumnIdentifier Nothing colName)
+            | otherwise         = False
+        
+        renameContext colId@(ColumnIdentifier Nothing _) = evaluationContext tbl colId
+        renameContext colId@(ColumnIdentifier (Just tblName) colName)
+            | tblName == name   = evaluationContext tbl (ColumnIdentifier Nothing colName)
+            | otherwise         = error $
+                "Error evaluating " ++ show colId ++ ": the given table name (" ++
+                tblName ++ ") is out of scope"
+
+evaluateWithContext :: EvaluationContext a -> Expression -> a -> NestedDataGroups EvaluatedExpression
+evaluateWithContext _ (StringConstantExpression s) _ = SingleElement (StringExpression s)
+evaluateWithContext _ (RealConstantExpression r) _   = SingleElement (RealExpression r)
+evaluateWithContext _ (IntConstantExpression i) _    = SingleElement (IntExpression i)
+evaluateWithContext _ (BoolConstantExpression b) _   = SingleElement (BoolExpression b)
+evaluateWithContext ctxt (ColumnExpression colId) row = ctxt colId row
+evaluateWithContext ctxt (FunctionExpression sqlFun args) row =
+    case (isAggregate sqlFun, args) of
+        -- if its an aggregate function with a single arg use aggregate evaluation
+        (True, [_]) -> aggregateEval
+        
+        -- otherwise just evaluate it as a single function
+        _           -> standardEval
+    where
+        normEvaldArgs = normalizeGroups [(evaluateWithContext ctxt) arg row | arg <- args]
+        evalGivenFun = evalSQLFunction sqlFun
+        aggregateEval =
+            SingleElement $ evalSQLFunction sqlFun (concat (flattenGroups normEvaldArgs))
+        standardEval = fmap evalGivenFun normEvaldArgs
+
+toGroupContext :: EvaluationContext a -> EvaluationContext [a]
+toGroupContext ctxt = grpCtxt
+    where grpCtxt colId rowGrp = GroupedData $ map (ctxt colId) rowGrp
+
+groupDbTable ::
+    SortConfiguration
+    -> [Expression]
+    -> BoxedTable
+    -> BoxedTable
+groupDbTable sortCfg grpExprs (BoxedTable tbl) =
+    BoxedTable tbl {
+        columnsWithContext = [(expr, toGroupContext ctxt) | (expr, ctxt) <- columnsWithContext tbl],
+        evaluationContext = toGroupContext $ evaluationContext tbl,
+        tableData = groupedData}
+    where
+        eval = evaluateWithContext (evaluationContext tbl)
+        rowOrd row = [eval expr row | expr <- grpExprs]
+        sortedData = sortByCfg sortCfg (compare `on` rowOrd) (tableData tbl)
+        groupedData = groupBy ((==) `on` rowOrd) sortedData
+
+singleGroupDbTable ::
+    BoxedTable
+    -> BoxedTable
+singleGroupDbTable (BoxedTable tbl) =
+    BoxedTable tbl {
+        columnsWithContext = [(expr, toGroupContext ctxt) | (expr, ctxt) <- columnsWithContext tbl],
+        evaluationContext = toGroupContext $ evaluationContext tbl,
+        tableData = [tableData tbl]}
+
+sortDbTable ::
+    SortConfiguration
+    -> [OrderByItem]
+    -> BoxedTable
+    -> BoxedTable
+sortDbTable sortCfg orderBys (BoxedTable table) =
+    BoxedTable table {tableData = sortOnOrderBys (tableData table)}
+    where
+        ordAscs = map orderAscending orderBys
+        ordExprs = map orderExpression orderBys
+        
+        evalCtxt = evaluateWithContext (evaluationContext table)
+        rowOrd row = [evalCtxt expr row | expr <- ordExprs]
+        sortOnOrderBys = sortByCfg sortCfg (compareWithDirection ordAscs `on` rowOrd)
+
+compareWithDirection :: (Ord a) => [Bool] -> [a] -> [a] -> Ordering
+compareWithDirection (asc:ascTail) (x:xt) (y:yt) = case x `compare` y of
+    LT -> if asc then LT else GT
+    GT -> if asc then GT else LT
+    EQ -> compareWithDirection ascTail xt yt
+compareWithDirection [] [] [] = EQ
+compareWithDirection _ _ _ = error "Internal error: List sizes should match"
+
+innerJoinDbTables ::
+    SortConfiguration
+    -> [(Expression, Expression)]
+    -> BoxedTable
+    -> BoxedTable
+    -> BoxedTable
+innerJoinDbTables sortCfg joinExprs (BoxedTable fstTable) (BoxedTable sndTable) =
+    BoxedTable $ zipDbTables joinedData fstTable sndTable
+    where
+        fstEval = evaluateWithContext (evaluationContext fstTable)
+        fstRowOrd row = [fstEval expr row | expr <- map fst joinExprs]
+        
+        sndEval = evaluateWithContext (evaluationContext sndTable)
+        sndRowOrd row = [sndEval expr row | expr <- map snd joinExprs]
+        
+        sortedFstData = sortByCfg sortCfg (compare `on` fstRowOrd) (tableData fstTable)
+        sortedSndData = sortByCfg sortCfg (compare `on` sndRowOrd) (tableData sndTable)
+        
+        joinedData = joinPresortedTables fstRowOrd sortedFstData sndRowOrd sortedSndData
+
+crossJoinDbTables ::
+    BoxedTable
+    -> BoxedTable
+    -> BoxedTable
+crossJoinDbTables (BoxedTable fstTable) (BoxedTable sndTable) =
+    BoxedTable $ zipDbTables joinedData fstTable sndTable
+    where
+        joinedData = [(x, y) | x <- tableData fstTable, y <- tableData sndTable]
+
+zipDbTables :: [(a, b)] -> DatabaseTable a -> DatabaseTable b -> DatabaseTable (a, b)
+zipDbTables zippedData fstTable sndTable = DatabaseTable {
+    columnsWithContext = fstCols ++ sndCols,
+    evaluationContext = evalCtxt,
+    tableData = zippedData,
+    isInScope = isInFstOrSndScope}
+    
+    where
+        isInFstScope = isInScope fstTable
+        isInSndScope = isInScope sndTable
+        isInFstOrSndScope iden = isInFstScope iden || isInSndScope iden
+        
+        toFstCtxt ctxt colId row = ctxt colId (fst row)
+        toSndCtxt ctxt colId row = ctxt colId (snd row)
+        
+        fstCols = [(expr, toFstCtxt ctxt) | (expr, ctxt) <- columnsWithContext fstTable]
+        sndCols = [(expr, toSndCtxt ctxt) | (expr, ctxt) <- columnsWithContext sndTable]
+        
+        evalCtxt colId row =
+            case (isInFstScope colId, isInSndScope colId) of
+                (True, False)   -> evaluationContext fstTable colId (fst row)
+                (False, True)   -> evaluationContext sndTable colId (snd row)
+                (True, True)    -> error $ "Error: ambiguous ID: " ++ show colId
+                (False, False)  -> idNotInScopeError colId
+
+idNotInScopeError :: ColumnIdentifier -> a
+idNotInScopeError colId = error $ "Error: not in scope: " ++ show colId
 
 -- TODO this ugly function needs to be modularized
 evalSQLFunction :: SQLFunction -> [EvaluatedExpression] -> EvaluatedExpression
@@ -637,185 +598,3 @@ evalSQLFunction sqlFun evaluatedArgs
 trimSpace :: String -> String
 trimSpace = f . f
     where f = reverse . dropWhile isSpace
-
-data NestedDataGroups e =
-    SingleElement {element :: e} |
-    GroupedData {nestedGroups :: ([NestedDataGroups e])} deriving (Ord, Eq, Show)
-
-instance Functor NestedDataGroups where
-    fmap f (SingleElement e) = SingleElement (f e)
-    fmap f (GroupedData grps) = GroupedData $ map (fmap f) grps
-
-aggregateDataGroups :: ([a] -> b) -> NestedDataGroups a -> NestedDataGroups b
-aggregateDataGroups f ndg = SingleElement $ f (flattenGroups ndg)
-
-flattenGroups :: NestedDataGroups e -> [e]
-flattenGroups (SingleElement myElem) = [myElem]
-flattenGroups (GroupedData grps) = concatMap flattenGroups grps
-
--- | this is kind of like a zip for the nested data groups. Note that
---   if it's given a single element on one side and grouped data on the other
---   the result will take the shape of the grouped data
-zipGroupsWith ::
-    (a -> b -> c)
-    -> NestedDataGroups a
-    -> NestedDataGroups b
-    -> NestedDataGroups c
-zipGroupsWith f (SingleElement e1) (SingleElement e2) = SingleElement $ f e1 e2
-zipGroupsWith f (SingleElement e) gd@(GroupedData _) = fmap (f e) gd
-zipGroupsWith f gd@(GroupedData _) (SingleElement e) = fmap ((flip f) e) gd
-zipGroupsWith f (GroupedData g1) (GroupedData g2) =
-    GroupedData $ zipWith (zipGroupsWith f) g1 g2
-
--- | takes a list of data groups which can have different shapes and returns
---   a single group of lists which obviously must have the same shape
-normalizeGroups :: [NestedDataGroups a] -> NestedDataGroups [a]
-normalizeGroups grps =
-    foldl
-        -- this function will reshape and concatinate as it's folded
-        (zipGroupsWith (++))
-        
-        -- an empty single element is the starting point for the fold
-        (SingleElement [])
-        
-        -- fmap is from NestedDataGroups and return from the list monad
-        (map (fmap return) grps)
-
-type EvaluationContext a = ColumnIdentifier -> a -> NestedDataGroups EvaluatedExpression
-
--- | a data type for representing a database table
-data DatabaseTable2 a = DatabaseTable2 {
-    
-    -- | column expressions with their evaluation contexts
-    columnsWithContext :: [(Expression, EvaluationContext a)],
-    
-    -- | the evaluation context for this table
-    evaluationContext :: EvaluationContext a,
-    
-    -- | the data in this table
-    tableData :: [a],
-    
-    -- | is the given identifier in scope for this table
-    isInScope :: ColumnIdentifier -> Bool}
-
-addAliases :: DatabaseTable2 a -> [(String, Expression)] -> DatabaseTable2 a
-addAliases tbl aliases =
-    tbl {
-        evaluationContext = aliasedContext,
-        isInScope = aliasedScope}
-    where
-        aliasMap = Map.fromList aliases
-        
-        aliasedScope colId@(ColumnIdentifier (Just _) _) = isInScope tbl colId
-        aliasedScope colId@(ColumnIdentifier Nothing colName) =
-            Map.member colName aliasMap || isInScope tbl colId
-        
-        aliasedContext colId@(ColumnIdentifier (Just _) _) = evaluationContext tbl colId
-        aliasedContext colId@(ColumnIdentifier Nothing colName) =
-            case Map.lookup colName aliasMap of
-                Nothing     -> evaluationContext tbl colId
-                Just expr   -> evaluateWithContext aliasedContext expr
-
-renameDbTable :: DatabaseTable2 a -> String -> DatabaseTable2 a
-renameDbTable tbl name =
-    tbl {
-        evaluationContext = renameContext,
-        isInScope = renameScope}
-    where
-        renameScope colId@(ColumnIdentifier Nothing _) = isInScope tbl colId
-        renameScope colId@(ColumnIdentifier (Just tblName) colName)
-            | tblName == name   = isInScope tbl (ColumnIdentifier Nothing colName)
-            | otherwise         = False
-        
-        renameContext colId@(ColumnIdentifier Nothing _) = evaluationContext tbl colId
-        renameContext colId@(ColumnIdentifier (Just tblName) colName)
-            | tblName == name   = evaluationContext tbl (ColumnIdentifier Nothing colName)
-            | otherwise         = error $
-                "Error evaluating " ++ show colId ++ ": the given table name (" ++
-                tblName ++ ") is out of scope"
-
-evaluateWithContext :: EvaluationContext a -> Expression -> a -> NestedDataGroups EvaluatedExpression
-evaluateWithContext _ (StringConstantExpression s) _ = SingleElement (StringExpression s)
-evaluateWithContext _ (RealConstantExpression r) _   = SingleElement (RealExpression r)
-evaluateWithContext _ (IntConstantExpression i) _    = SingleElement (IntExpression i)
-evaluateWithContext _ (BoolConstantExpression b) _   = SingleElement (BoolExpression b)
-evaluateWithContext ctxt (ColumnExpression colId) row = ctxt colId row
-evaluateWithContext ctxt (FunctionExpression sqlFun args) row =
-    case (isAggregate sqlFun, args) of
-        -- if its an aggregate function with a single arg use aggregate evaluation
-        (True, [_]) -> aggregateEval
-        
-        -- other wise just evaluate it as a single function
-        _           -> standardEval
-    where
-        normEvaldArgs = normalizeGroups [(evaluateWithContext ctxt) arg row | arg <- args]
-        aggregateEval =
-            SingleElement $ evalSQLFunction sqlFun (concat (flattenGroups normEvaldArgs))
-        standardEval = fmap (evalSQLFunction sqlFun) normEvaldArgs
-
-toGroupContext :: EvaluationContext a -> EvaluationContext [a]
-toGroupContext ctxt = grpCtxt
-    where grpCtxt colId rowGrp = GroupedData $ map (ctxt colId) rowGrp
-
-groupDbTable :: (Binary a) =>
-    SortConfiguration
-    -> [Expression]
-    -> DatabaseTable2 a
-    -> DatabaseTable2 [a]
-groupDbTable sortCfg grpExprs tbl =
-    tbl {
-        columnsWithContext = [(expr, toGroupContext ctxt) | (expr, ctxt) <- columnsWithContext tbl],
-        evaluationContext = toGroupContext $ evaluationContext tbl,
-        tableData = groupedData}
-    where
-        eval = evaluateWithContext (evaluationContext tbl)
-        rowOrd row = [eval expr row | expr <- grpExprs]
-        sortedData = sortByCfg sortCfg (compare `on` rowOrd) (tableData tbl)
-        groupedData = groupBy ((==) `on` rowOrd) sortedData
-
-joinDbTables :: (Binary a, Binary b) =>
-    SortConfiguration
-    -> [(Expression, Expression)]
-    -> DatabaseTable2 a
-    -> DatabaseTable2 b
-    -> DatabaseTable2 (a, b)
-joinDbTables sortCfg joinExprs fstTable sndTable =
-    zipDbTables
-        fstTable {tableData = map fst joinedData}
-        sndTable {tableData = map snd joinedData}
-    where
-        fstEval = evaluateWithContext (evaluationContext fstTable)
-        fstRowOrd row = [fstEval expr row | expr <- map fst joinExprs]
-        
-        sndEval = evaluateWithContext (evaluationContext sndTable)
-        sndRowOrd row = [sndEval expr row | expr <- map snd joinExprs]
-        
-        sortedFstData = sortByCfg sortCfg (compare `on` fstRowOrd) (tableData fstTable)
-        sortedSndData = sortByCfg sortCfg (compare `on` sndRowOrd) (tableData sndTable)
-        
-        joinedData = joinPresortedTables fstRowOrd sortedFstData sndRowOrd sortedSndData
-
-zipDbTables :: DatabaseTable2 a -> DatabaseTable2 b -> DatabaseTable2 (a, b)
-zipDbTables fstTable sndTable = DatabaseTable2 {
-    columnsWithContext = fstCols ++ sndCols,
-    evaluationContext = evalCtxt,
-    tableData = zip (tableData fstTable) (tableData sndTable),
-    isInScope = isInFstOrSndScope}
-    
-    where
-        isInFstScope = isInScope fstTable
-        isInSndScope = isInScope sndTable
-        isInFstOrSndScope iden = isInFstScope iden || isInSndScope iden
-        
-        toFstCtxt ctxt colId row = ctxt colId (fst row)
-        toSndCtxt ctxt colId row = ctxt colId (snd row)
-        
-        fstCols = [(expr, toFstCtxt ctxt) | (expr, ctxt) <- columnsWithContext fstTable]
-        sndCols = [(expr, toSndCtxt ctxt) | (expr, ctxt) <- columnsWithContext sndTable]
-        
-        evalCtxt colId row =
-            case (isInFstScope colId, isInSndScope colId) of
-                (True, False)   -> evaluationContext fstTable colId (fst row)
-                (False, True)   -> evaluationContext sndTable colId (snd row)
-                (True, True)    -> error $ "Error: ambiguous ID: " ++ show colId
-                (False, False)  -> error $ "Error: not in scope: " ++ show colId

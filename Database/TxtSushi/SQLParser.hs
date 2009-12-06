@@ -17,17 +17,15 @@ module Database.TxtSushi.SQLParser (
     SelectStatement(..),
     TableExpression(..),
     ColumnIdentifier(..),
-    prettyFormatColumn,
     ColumnSelection(..),
-    expressionIdentifier,
     Expression(..),
     OrderByItem(..),
-    prettyFormatWithArgs,
     SQLFunction(..),
     withTrailing,
     withoutTrailing,
     isAggregate,
     selectStatementContainsAggregates,
+    expressionToString,
     
     -- aggregates
     avgFunction,
@@ -136,12 +134,6 @@ data ColumnIdentifier =
         columnId :: String}
     deriving (Show, Ord, Eq)
 
--- | I wanted to leave the default Show, but I also wanted a pretty print, so
---   here it is!
-prettyFormatColumn :: ColumnIdentifier -> String
-prettyFormatColumn (ColumnIdentifier (Just tblName) colId) = tblName ++ "." ++ colId
-prettyFormatColumn (ColumnIdentifier (Nothing) colId) = colId
-
 data Expression =
     FunctionExpression {
         sqlFunction :: SQLFunction,
@@ -182,54 +174,48 @@ selectStatementContainsAggregates select =
     any selectionContainsAggregates (columnSelections select) ||
     any orderByItemContainsAggregates (orderByItems select)
 
-expressionIdentifier :: Expression -> ColumnIdentifier
-expressionIdentifier (FunctionExpression func args) =
-    ColumnIdentifier Nothing ((prettyFormatWithArgs func) args)
-expressionIdentifier (ColumnExpression col) = col
-expressionIdentifier (StringConstantExpression str) =
-    ColumnIdentifier Nothing ("\"" ++ str ++ "\"")
-expressionIdentifier (IntConstantExpression int) =
-    ColumnIdentifier Nothing (show int)
-expressionIdentifier (RealConstantExpression real) =
-    ColumnIdentifier Nothing (show real)
-expressionIdentifier (BoolConstantExpression bool) =
-    ColumnIdentifier Nothing (map toUpper $ show bool)
-
-needsParens :: Expression -> Bool
-needsParens (FunctionExpression _ _) = True
-needsParens _ = False
-
-toArgString :: Expression -> String
-toArgString expr =
-    let exprFmt = prettyFormatColumn $ expressionIdentifier expr
-    in if needsParens expr then "(" ++ exprFmt ++ ")" else exprFmt
-
-prettyFormatWithArgs :: SQLFunction -> [Expression] -> String
-prettyFormatWithArgs sqlFunc funcArgs
-    | sqlFunc `elem` normalSyntaxFunctions = prettyFormatNormalFunctionExpression sqlFunc funcArgs
-    | or (map (sqlFunc `elem`) infixFunctions) = prettyFormatInfixFunctionExpression sqlFunc funcArgs
-    | sqlFunc == negateFunction = "-" ++ toArgString (head funcArgs)
-    | sqlFunc == countFunction = functionName countFunction ++ "(*)"
-    | sqlFunc == substringFromToFunction ||
-      sqlFunc == substringFromFunction ||
-      sqlFunc == notFunction =
-        prettyFormatNormalFunctionExpression sqlFunc funcArgs
-    | otherwise =
-        error $ "don't know how to format the given SQL function : " ++
-                show sqlFunc
-
-prettyFormatInfixFunctionExpression :: SQLFunction -> [Expression] -> String
-prettyFormatInfixFunctionExpression sqlFunc funcArgs =
-    let
-        arg1 = head funcArgs
-        arg2 = funcArgs !! 1
-    in
-        toArgString arg1 ++ functionName sqlFunc ++ toArgString arg2
-
-prettyFormatNormalFunctionExpression :: SQLFunction -> [Expression] -> String
-prettyFormatNormalFunctionExpression sqlFunc funcArgs =
-    let argString = intercalate ", " (map toArgString funcArgs)
-    in functionName sqlFunc ++ "(" ++ argString ++ ")"
+expressionToString :: Expression -> String
+expressionToString expr =
+    if needsParens expr then "(" ++ formattedExpr ++ ")" else formattedExpr
+    where
+        formattedExpr = formatExpression expr
+        
+        needsParens (FunctionExpression sqlFunc _) = any (sqlFunc `elem`) infixFunctions
+        needsParens _ = False
+        
+        formatExpression (FunctionExpression func args) = prettyFormatWithArgs func args
+        formatExpression (ColumnExpression col) = prettyFormatColumn col
+        formatExpression (StringConstantExpression str) = "\"" ++ str ++ "\""
+        formatExpression (IntConstantExpression int) = show int
+        formatExpression (RealConstantExpression real) = show real
+        formatExpression (BoolConstantExpression bool) = map toUpper (show bool)
+        
+        prettyFormatColumn (ColumnIdentifier (Just tblName) colId) = tblName ++ "." ++ colId
+        prettyFormatColumn (ColumnIdentifier (Nothing) colId) = colId
+        
+        prettyFormatWithArgs sqlFunc funcArgs
+            | sqlFunc `elem` normalSyntaxFunctions = prettyFormatNormalFunctionExpression sqlFunc funcArgs
+            | any (sqlFunc `elem`) infixFunctions = prettyFormatInfixFunctionExpression sqlFunc funcArgs
+            | sqlFunc == negateFunction = "-" ++ expressionToString (head funcArgs)
+            | sqlFunc == countFunction = functionName countFunction ++ "(*)"
+            | sqlFunc == substringFromToFunction ||
+              sqlFunc == substringFromFunction ||
+              sqlFunc == notFunction =
+                prettyFormatNormalFunctionExpression sqlFunc funcArgs
+            | otherwise =
+                error $ "don't know how to format the given SQL function : " ++
+                        show sqlFunc
+        
+        prettyFormatInfixFunctionExpression sqlFunc funcArgs =
+            let
+                arg1 = head funcArgs
+                arg2 = funcArgs !! 1
+            in
+                expressionToString arg1 ++ functionName sqlFunc ++ expressionToString arg2
+        
+        prettyFormatNormalFunctionExpression sqlFunc funcArgs =
+            let argString = intercalate ", " (map expressionToString funcArgs)
+            in functionName sqlFunc ++ "(" ++ argString ++ ")"
 
 data SQLFunction = SQLFunction {
     functionName :: String,
