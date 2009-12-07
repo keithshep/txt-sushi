@@ -26,6 +26,7 @@ module Database.TxtSushi.SQLParser (
     isAggregate,
     selectStatementContainsAggregates,
     expressionToString,
+    columnToString,
     
     -- aggregates
     avgFunction,
@@ -184,14 +185,11 @@ expressionToString expr =
         needsParens _ = False
         
         formatExpression (FunctionExpression func args) = prettyFormatWithArgs func args
-        formatExpression (ColumnExpression col) = prettyFormatColumn col
+        formatExpression (ColumnExpression col) = columnToString col
         formatExpression (StringConstantExpression str) = "\"" ++ str ++ "\""
         formatExpression (IntConstantExpression int) = show int
         formatExpression (RealConstantExpression real) = show real
         formatExpression (BoolConstantExpression bool) = map toUpper (show bool)
-        
-        prettyFormatColumn (ColumnIdentifier (Just tblName) colId) = tblName ++ "." ++ colId
-        prettyFormatColumn (ColumnIdentifier (Nothing) colId) = colId
         
         prettyFormatWithArgs sqlFunc funcArgs
             | sqlFunc `elem` normalSyntaxFunctions = prettyFormatNormalFunctionExpression sqlFunc funcArgs
@@ -203,7 +201,7 @@ expressionToString expr =
               sqlFunc == notFunction =
                 prettyFormatNormalFunctionExpression sqlFunc funcArgs
             | otherwise =
-                error $ "don't know how to format the given SQL function : " ++
+                error $ "Internal Error: I don't know how to format the given SQL function : " ++
                         show sqlFunc
         
         prettyFormatInfixFunctionExpression sqlFunc funcArgs =
@@ -216,6 +214,10 @@ expressionToString expr =
         prettyFormatNormalFunctionExpression sqlFunc funcArgs =
             let argString = intercalate ", " (map expressionToString funcArgs)
             in functionName sqlFunc ++ "(" ++ argString ++ ")"
+
+columnToString :: ColumnIdentifier -> String
+columnToString (ColumnIdentifier (Just tblName) colId) = tblName ++ "." ++ colId
+columnToString (ColumnIdentifier (Nothing) colId) = colId
 
 data SQLFunction = SQLFunction {
     functionName :: String,
