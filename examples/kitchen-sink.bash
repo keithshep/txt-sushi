@@ -7,6 +7,6 @@
 ../dist/build/tssql/tssql \
 'select `example1.csv`.*, `example2.csv`.`other val`, `example2.csv`.id2
 from `example1.csv` join `example2.csv` on `example1.csv`.id = `example2.csv`.id2
-where `other val` <> "hello 269" and id2 > 246
+where `example1.csv`.`other val` <> "hello 269" and id2 > 246
 order by id + 0 asc' \
 | ../dist/build/csvtopretty/csvtopretty -
