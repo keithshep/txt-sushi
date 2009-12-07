@@ -79,18 +79,21 @@ databaseTableToTextTable (BoxedTable dbTable) = headerRow : tailRows
         evalRow row =
             [evalRowExpr ctxt colExpr row | (colExpr, ctxt) <- colsWCtxt]
 
+emptyTable :: BoxedTable
+emptyTable = BoxedTable $ DatabaseTable {
+    columnsWithContext = [],
+    qualifiedColumnsWithContext = M.empty,
+    evaluationContext = const . (columnNotInScopeError . columnToString),
+    tableData = [error "Internal Error: this error should never occur!"] :: [String],
+    isInScope = const False}
+
 -- | perform a SQL select with the given select statement on the
 --   given table map
 select :: SortConfiguration -> SelectStatement -> (M.Map String BoxedTable) -> BoxedTable
 select sortCfg selectStmt tableMap =
     let
         fromTbl = case maybeFromTable selectStmt of
-            Nothing -> BoxedTable $ DatabaseTable {
-                columnsWithContext = [],
-                qualifiedColumnsWithContext = M.empty,
-                evaluationContext = const . (columnNotInScopeError . columnToString),
-                tableData = [] :: [String],
-                isInScope = const False}
+            Nothing -> emptyTable
             Just fromTblExpr -> evalTableExpression sortCfg fromTblExpr tableMap
         fromTblWithAliases =
             addAliases fromTbl (extractColumnAliases $ columnSelections selectStmt)
