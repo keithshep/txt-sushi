@@ -50,6 +50,7 @@ textTableToDatabaseTable tblName (headerNames:tblRows) =
         columnsWithContext = zip (map makeColExpr headerNames) (repeat evalCtxt),
         qualifiedColumnsWithContext = M.empty,
         evaluationContext = evalCtxt,
+        shapeRowResults = idShape,
         tableData = tblRows,
         isInScope = idInHeader}
     where
@@ -74,8 +75,9 @@ databaseTableToTextTable (BoxedTable dbTable) = headerRow : tailRows
         
         colsWCtxt = columnsWithContext dbTable
         
+        shapeFunc = shapeRowResults dbTable
         evalRowExpr ctxt colExpr row =
-            coerceString . collapseGroups colExpr $ evaluateWithContext ctxt colExpr row
+            coerceString . collapseGroups colExpr $ evaluateWithContext ctxt shapeFunc colExpr row
         evalRow row =
             [evalRowExpr ctxt colExpr row | (colExpr, ctxt) <- colsWCtxt]
 
@@ -84,6 +86,7 @@ emptyTable = BoxedTable $ DatabaseTable {
     columnsWithContext = [],
     qualifiedColumnsWithContext = M.empty,
     evaluationContext = const . (columnNotInScopeError . columnToString),
+    shapeRowResults = idShape,
     tableData = [error "Internal Error: this error should never occur!"] :: [String],
     isInScope = const False}
 
@@ -258,6 +261,10 @@ normalizeGroups grps =
         (map (fmap return) grps)
 
 type EvaluationContext a = ColumnIdentifier -> a -> NestedDataGroups EvaluatedExpression
+type ShapingFunction a = a -> NestedDataGroups (EvaluatedExpression -> EvaluatedExpression)
+
+idShape :: ShapingFunction a
+idShape = const $ SingleElement id
 
 -- | a data type for representing a database table
 data DatabaseTable a = DatabaseTable {
@@ -270,6 +277,8 @@ data DatabaseTable a = DatabaseTable {
     
     -- | the evaluation context for this table
     evaluationContext :: EvaluationContext a,
+    
+    shapeRowResults :: ShapingFunction a,
     
     -- | the data in this table
     tableData :: [a],
@@ -296,7 +305,8 @@ filterRowsBy :: Expression -> BoxedTable -> BoxedTable
 filterRowsBy filterExpr (BoxedTable table) =
     BoxedTable table {tableData = filter myBoolEvalExpr (tableData table)}
     where
-        evalFilterExpr = evaluateWithContext (evaluationContext table) filterExpr
+        evalFilterExpr =
+            evaluateWithContext (evaluationContext table) (shapeRowResults table) filterExpr
         myBoolEvalExpr = coerceBool . collapseGroups filterExpr . evalFilterExpr
 
 addAliases :: BoxedTable -> [(String, Expression)] -> BoxedTable
@@ -316,7 +326,7 @@ addAliases (BoxedTable tbl) aliases =
         aliasedContext colId@(ColumnIdentifier Nothing colName) =
             case M.lookup colName aliasMap of
                 Nothing     -> evaluationContext tbl colId
-                Just expr   -> evaluateWithContext aliasedContext expr
+                Just expr   -> evaluateWithContext aliasedContext (shapeRowResults tbl) expr
 
 maybeRename :: (Maybe String) -> BoxedTable -> BoxedTable
 maybeRename Nothing boxedTable = boxedTable
@@ -339,13 +349,8 @@ renameDbTable name (BoxedTable tbl) =
             | tblName == name   = ctxt (ColumnIdentifier Nothing colName)
             | otherwise         = columnNotInScopeError $ columnToString colId
 
-evaluateWithContext :: EvaluationContext a -> Expression -> a -> NestedDataGroups EvaluatedExpression
-evaluateWithContext _ (StringConstantExpression s) _ = SingleElement (StringExpression s)
-evaluateWithContext _ (RealConstantExpression r) _   = SingleElement (RealExpression r)
-evaluateWithContext _ (IntConstantExpression i) _    = SingleElement (IntExpression i)
-evaluateWithContext _ (BoolConstantExpression b) _   = SingleElement (BoolExpression b)
-evaluateWithContext ctxt (ColumnExpression colId) row = ctxt colId row
-evaluateWithContext ctxt (FunctionExpression sqlFun args) row =
+evaluateWithContext :: EvaluationContext a -> ShapingFunction a -> Expression -> a -> NestedDataGroups EvaluatedExpression
+evaluateWithContext ctxt shapeFunc (FunctionExpression sqlFun args) row =
     case (isAggregate sqlFun, args) of
         -- if its an aggregate function with a single arg use aggregate evaluation
         (True, [_]) -> aggregateEval
@@ -353,15 +358,31 @@ evaluateWithContext ctxt (FunctionExpression sqlFun args) row =
         -- otherwise just evaluate it as a single function
         _           -> standardEval
     where
-        normEvaldArgs = normalizeGroups [(evaluateWithContext ctxt) arg row | arg <- args]
+        normEvaldArgs = normalizeGroups [evaluateWithContext ctxt shapeFunc arg row | arg <- args]
         evalGivenFun = evalSQLFunction sqlFun
         aggregateEval =
             SingleElement $ evalSQLFunction sqlFun (concat (flattenGroups normEvaldArgs))
         standardEval = fmap evalGivenFun normEvaldArgs
+evaluateWithContext ctxt shapeFunc expr row = (shapeFunc row <*>) $ go expr
+    where
+        go (StringConstantExpression s)     = SingleElement (StringExpression s)
+        go (RealConstantExpression r)       = SingleElement (RealExpression r)
+        go (IntConstantExpression i)        = SingleElement (IntExpression i)
+        go (BoolConstantExpression b)       = SingleElement (BoolExpression b)
+        go (ColumnExpression colId)         = ctxt colId row
+        go (FunctionExpression _ _)         =
+            error $ "Internal Error: this error should never occur!"
 
 toGroupContext :: EvaluationContext a -> EvaluationContext [a]
 toGroupContext ctxt = grpCtxt
     where grpCtxt colId rowGrp = GroupedData $ map (ctxt colId) rowGrp
+
+toGroupShape ::
+    ShapingFunction a
+    -> ShapingFunction [a]
+toGroupShape shapeFunc = groupShaperFunc
+    where
+        groupShaperFunc rowGrp = GroupedData $ map shapeFunc rowGrp
 
 groupDbTable ::
     SortConfiguration
@@ -373,9 +394,10 @@ groupDbTable sortCfg grpExprs (BoxedTable tbl) =
         columnsWithContext = mapSnd toGroupContext (columnsWithContext tbl),
         qualifiedColumnsWithContext = M.map (mapSnd toGroupContext) (qualifiedColumnsWithContext tbl),
         evaluationContext = toGroupContext $ evaluationContext tbl,
+        shapeRowResults = toGroupShape $ shapeRowResults tbl,
         tableData = groupedData}
     where
-        eval = evaluateWithContext (evaluationContext tbl)
+        eval = evaluateWithContext (evaluationContext tbl) (shapeRowResults tbl)
         rowOrd row = [eval expr row | expr <- grpExprs]
         sortedData = sortByCfg sortCfg (compare `on` rowOrd) (tableData tbl)
         groupedData = groupBy ((==) `on` rowOrd) sortedData
@@ -388,6 +410,7 @@ singleGroupDbTable (BoxedTable tbl) =
         columnsWithContext = mapSnd toGroupContext (columnsWithContext tbl),
         qualifiedColumnsWithContext = M.map (mapSnd toGroupContext) (qualifiedColumnsWithContext tbl),
         evaluationContext = toGroupContext $ evaluationContext tbl,
+        shapeRowResults = toGroupShape $ shapeRowResults tbl,
         tableData = [tableData tbl]}
 
 sortDbTable ::
@@ -401,7 +424,7 @@ sortDbTable sortCfg orderBys (BoxedTable table) =
         ordAscs = map orderAscending orderBys
         ordExprs = map orderExpression orderBys
         
-        evalCtxt = evaluateWithContext (evaluationContext table)
+        evalCtxt = evaluateWithContext (evaluationContext table) (shapeRowResults table)
         rowOrd row = [evalCtxt expr row | expr <- ordExprs]
         sortOnOrderBys = sortByCfg sortCfg (compareWithDirection ordAscs `on` rowOrd)
 
@@ -422,10 +445,10 @@ innerJoinDbTables ::
 innerJoinDbTables sortCfg joinExprs (BoxedTable fstTable) (BoxedTable sndTable) =
     BoxedTable $ zipDbTables joinedData fstTable sndTable
     where
-        fstEval = evaluateWithContext (evaluationContext fstTable)
+        fstEval = evaluateWithContext (evaluationContext fstTable) (shapeRowResults fstTable)
         fstRowOrd row = [fstEval expr row | expr <- map fst joinExprs]
         
-        sndEval = evaluateWithContext (evaluationContext sndTable)
+        sndEval = evaluateWithContext (evaluationContext sndTable) (shapeRowResults sndTable)
         sndRowOrd row = [sndEval expr row | expr <- map snd joinExprs]
         
         sortedFstData = sortByCfg sortCfg (compare `on` fstRowOrd) (tableData fstTable)
@@ -447,6 +470,7 @@ zipDbTables zippedData fstTable sndTable = DatabaseTable {
     columnsWithContext = fstCols ++ sndCols,
     qualifiedColumnsWithContext = M.unionWithKey ambiguousTableError fstQualCols sndQualCols,
     evaluationContext = evalCtxt,
+    shapeRowResults = shapeResults,
     tableData = zippedData,
     isInScope = isInFstOrSndScope}
     
@@ -470,6 +494,9 @@ zipDbTables zippedData fstTable sndTable = DatabaseTable {
                 (False, True)   -> evaluationContext sndTable colId (snd row)
                 (True, True)    -> ambiguousColumnError $ columnToString colId
                 (False, False)  -> columnNotInScopeError $ columnToString colId
+        
+        shapeResults row =
+            liftA2 (.) (shapeRowResults fstTable (fst row)) (shapeRowResults sndTable (snd row))
 
 mapSnd :: (a -> b) -> [(c, a)] -> [(c, b)]
 mapSnd f xs = [(x, f y) | (x, y) <- xs]
