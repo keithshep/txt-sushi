@@ -44,34 +44,27 @@ sortByCfg UseExternalSort = externalSortBy
 
 -- convert a text table to a database table by using the 1st row as column IDs
 textTableToDatabaseTable :: String -> [[String]] -> BoxedTable
-textTableToDatabaseTable tblName [] =
-    error $ "invalid table \"" ++ tblName ++ "\". There is no header row"
+textTableToDatabaseTable tblName [] = noTableHeaderError tblName
 textTableToDatabaseTable tblName (headerNames:tblRows) =
-    BoxedTable DatabaseTable {
+    renameDbTable tblName $ BoxedTable DatabaseTable {
         columnsWithContext = zip (map makeColExpr headerNames) (repeat evalCtxt),
+        qualifiedColumnsWithContext = M.empty,
         evaluationContext = evalCtxt,
         tableData = tblRows,
         isInScope = idInHeader}
     where
-        makeColExpr colName = ColumnExpression $ ColumnIdentifier (Just tblName) colName
+        makeColExpr colName = ColumnExpression $ ColumnIdentifier Nothing colName
         
-        idInHeader (ColumnIdentifier (Just exprTblName) colName) =
-            if exprTblName == tblName
-                then colName `elem` headerNames
-                else False
-        idInHeader (ColumnIdentifier Nothing colName) = colName `elem` headerNames
+        idInHeader (ColumnIdentifier (Just _) _)        = False
+        idInHeader (ColumnIdentifier Nothing colName)   = colName `elem` headerNames
         
-        evalCtxt (ColumnIdentifier (Just exprTblName) colName) row =
-            if exprTblName == tblName
-                then evalCtxtForName colName row
-                else error $ "Failed to find table named: " ++ tblName
+        evalCtxt colId@(ColumnIdentifier (Just _) _) _ =
+            columnNotInScopeError $ columnToString colId
         evalCtxt (ColumnIdentifier Nothing colName) row =
-            evalCtxtForName colName row
-        evalCtxtForName colName row =
             case elemIndices colName headerNames of
                 [colIndex]  -> SingleElement $ StringExpression (row !! colIndex)
-                []          -> error $ "Failed to find column named: " ++ colName
-                _           -> error $ "Ambiguous column name (found multiple matches): " ++ colName
+                []          -> columnNotInScopeError colName
+                _           -> ambiguousColumnError colName
 
 databaseTableToTextTable :: BoxedTable -> [[String]]
 databaseTableToTextTable (BoxedTable dbTable) = headerRow : tailRows
@@ -94,7 +87,8 @@ select sortCfg selectStmt tableMap =
         fromTbl = case maybeFromTable selectStmt of
             Nothing -> BoxedTable $ DatabaseTable {
                 columnsWithContext = [],
-                evaluationContext = const . idNotInScopeError,
+                qualifiedColumnsWithContext = M.empty,
+                evaluationContext = const . (columnNotInScopeError . columnToString),
                 tableData = [] :: [String],
                 isInScope = const False}
             Just fromTblExpr -> evalTableExpression sortCfg fromTblExpr tableMap
@@ -137,12 +131,8 @@ evalTableExpression :: SortConfiguration -> TableExpression -> (M.Map String Box
 evalTableExpression sortCfg tblExpr tableMap =
     case tblExpr of
         TableIdentifier tblName maybeTblAlias ->
-            let
-                -- find the from table map (error if missing)
-                noTblError = error $ "failed to find table named " ++ tblName
-                table = M.findWithDefault noTblError tblName tableMap
-            in
-                maybeRename maybeTblAlias table
+            let table = M.findWithDefault (tableNotInScopeError tblName) tblName tableMap
+            in  maybeRename maybeTblAlias table
         
         -- TODO inner join should allow joining on expressions too!!
         InnerJoin leftJoinTblExpr rightJoinTblExpr onConditionExpr maybeTblAlias ->
@@ -177,20 +167,9 @@ finishWithNormalSelect sortCfg selectStmt filteredDbTable =
 selectionToExpressions :: DatabaseTable a -> ColumnSelection -> [(Expression, EvaluationContext a)]
 selectionToExpressions dbTable AllColumns = columnsWithContext dbTable
 selectionToExpressions dbTable (AllColumnsFrom srcTblName) =
-    error "Keith wasn't thinking ahead so now we have this error!"
-{-
-    let
-        colIds = columnIdentifiers dbTable
-        indices = findIndices matchesSrcTblName (map maybeTableName colIds)
-        selectedColIds = selectIndices indices colIds
-        selectedColRows = map (selectIndices indices) (tableRows dbTable)
-    in
-        DatabaseTable selectedColIds selectedColRows
-    where
-        matchesSrcTblName Nothing           = False
-        matchesSrcTblName (Just tblName)    = tblName == srcTblName
-        selectIndices indices xs = [xs !! i | i <- indices]
--}
+    M.findWithDefault errMsg srcTblName (qualifiedColumnsWithContext dbTable)
+    where errMsg = tableNotInScopeError srcTblName
+
 selectionToExpressions dbTable (ExpressionColumn expr Nothing) =
     [(expr, evaluationContext dbTable)]
 selectionToExpressions dbTable (ExpressionColumn _ (Just exprAlias)) =
@@ -214,21 +193,10 @@ extractJoinExprs bTbl1@(BoxedTable tbl1) bTbl2@(BoxedTable tbl2) (FunctionExpres
                 else
                     if fromScope tbl2 arg1 && fromScope tbl1 arg2
                         then [(arg2, arg1)]
-                        else error $
-                            "The expressions used in the \"ON\" part of a " ++
-                            "table join must use identifiers from each " ++
-                            "of the two join tables like: " ++
-                            "\"tbl1.id1 = table2.id1 AND " ++
-                            "tbl1.firstname = tbl2.name\""
+                        else joinOnRequiresBothTablesError
 
 -- Only expecting "AND" or "="
 extractJoinExprs _ _ _ = onPartFormattingError
-
-onPartFormattingError :: a
-onPartFormattingError = error $
-    "The \"ON\" part of a join must only contain " ++
-    "expression equalities joined together by \"AND\" like: " ++
-    "\"tbl1.id1 = table2.id1 AND tbl1.firstname = tbl2.name\""
 
 data NestedDataGroups e =
     SingleElement e |
@@ -245,9 +213,6 @@ instance Applicative NestedDataGroups where
     (SingleElement f)  <*> gd@(GroupedData _) = fmap f gd
     gd@(GroupedData _) <*> (SingleElement x)  = fmap ($ x) gd
     (GroupedData fs)   <*> (GroupedData xs)   = GroupedData $ zipWith (<*>) fs xs
-
---aggregateDataGroups :: ([a] -> b) -> NestedDataGroups a -> NestedDataGroups b
---aggregateDataGroups f ndg = SingleElement $ f (flattenGroups ndg)
 
 flattenGroups :: NestedDataGroups e -> [e]
 flattenGroups (SingleElement myElem) = [myElem]
@@ -267,9 +232,9 @@ collapseGroups expr grps = case group (flattenGroups grps) of
             commaSepElems = intercalate ", " (map coerceString elemsToShow)
             exprStr = expressionToString expr
             errorMsg =
-                "Error evaluating " ++ exprStr ++
-                ": cannot evaluate an aggregate expression unless all " ++
-                "of the aggregate values match. Found multiple different " ++
+                "Error: error evaluating \"" ++ exprStr ++
+                "\". Cannot evaluate a grouped expression unless all " ++
+                "of the grouped values match. Found multiple different " ++
                 "values including: " ++ commaSepElems
         in case remaining of
             []  -> error errorMsg
@@ -296,6 +261,9 @@ data DatabaseTable a = DatabaseTable {
     
     -- | column expressions with their evaluation contexts
     columnsWithContext :: [(Expression, EvaluationContext a)],
+    
+    -- | columns with context qualified by table name (the map key)
+    qualifiedColumnsWithContext :: M.Map String [(Expression, EvaluationContext a)],
     
     -- | the evaluation context for this table
     evaluationContext :: EvaluationContext a,
@@ -349,25 +317,24 @@ addAliases (BoxedTable tbl) aliases =
 
 maybeRename :: (Maybe String) -> BoxedTable -> BoxedTable
 maybeRename Nothing boxedTable = boxedTable
-maybeRename (Just newName) boxedTable = renameDbTable boxedTable newName
+maybeRename (Just newName) boxedTable = renameDbTable newName boxedTable
 
-renameDbTable :: BoxedTable -> String -> BoxedTable
-renameDbTable (BoxedTable tbl) name =
+renameDbTable :: String -> BoxedTable -> BoxedTable
+renameDbTable name (BoxedTable tbl) =
     BoxedTable tbl {
-        evaluationContext = renameContext,
-        isInScope = renameScope}
+        qualifiedColumnsWithContext = M.insert name (columnsWithContext tbl) (qualifiedColumnsWithContext tbl),
+        evaluationContext = renameContext (evaluationContext tbl),
+        isInScope = isInRenamedScope}
     where
-        renameScope colId@(ColumnIdentifier Nothing _) = isInScope tbl colId
-        renameScope (ColumnIdentifier (Just tblName) colName)
+        isInRenamedScope colId@(ColumnIdentifier Nothing _) = isInScope tbl colId
+        isInRenamedScope (ColumnIdentifier (Just tblName) colName)
             | tblName == name   = isInScope tbl (ColumnIdentifier Nothing colName)
             | otherwise         = False
         
-        renameContext colId@(ColumnIdentifier Nothing _) = evaluationContext tbl colId
-        renameContext colId@(ColumnIdentifier (Just tblName) colName)
-            | tblName == name   = evaluationContext tbl (ColumnIdentifier Nothing colName)
-            | otherwise         = error $
-                "Error evaluating " ++ show colId ++ ": the given table name (" ++
-                tblName ++ ") is out of scope"
+        renameContext ctxt colId@(ColumnIdentifier Nothing _) = ctxt colId
+        renameContext ctxt colId@(ColumnIdentifier (Just tblName) colName)
+            | tblName == name   = ctxt (ColumnIdentifier Nothing colName)
+            | otherwise         = columnNotInScopeError $ columnToString colId
 
 evaluateWithContext :: EvaluationContext a -> Expression -> a -> NestedDataGroups EvaluatedExpression
 evaluateWithContext _ (StringConstantExpression s) _ = SingleElement (StringExpression s)
@@ -400,7 +367,8 @@ groupDbTable ::
     -> BoxedTable
 groupDbTable sortCfg grpExprs (BoxedTable tbl) =
     BoxedTable tbl {
-        columnsWithContext = [(expr, toGroupContext ctxt) | (expr, ctxt) <- columnsWithContext tbl],
+        columnsWithContext = mapSnd toGroupContext (columnsWithContext tbl),
+        qualifiedColumnsWithContext = M.map (mapSnd toGroupContext) (qualifiedColumnsWithContext tbl),
         evaluationContext = toGroupContext $ evaluationContext tbl,
         tableData = groupedData}
     where
@@ -414,7 +382,8 @@ singleGroupDbTable ::
     -> BoxedTable
 singleGroupDbTable (BoxedTable tbl) =
     BoxedTable tbl {
-        columnsWithContext = [(expr, toGroupContext ctxt) | (expr, ctxt) <- columnsWithContext tbl],
+        columnsWithContext = mapSnd toGroupContext (columnsWithContext tbl),
+        qualifiedColumnsWithContext = M.map (mapSnd toGroupContext) (qualifiedColumnsWithContext tbl),
         evaluationContext = toGroupContext $ evaluationContext tbl,
         tableData = [tableData tbl]}
 
@@ -439,7 +408,7 @@ compareWithDirection (asc:ascTail) (x:xt) (y:yt) = case x `compare` y of
     GT -> if asc then GT else LT
     EQ -> compareWithDirection ascTail xt yt
 compareWithDirection [] [] [] = EQ
-compareWithDirection _ _ _ = error "Internal error: List sizes should match"
+compareWithDirection _ _ _ = error "Internal Error: List sizes should match"
 
 innerJoinDbTables ::
     SortConfiguration
@@ -473,6 +442,7 @@ crossJoinDbTables (BoxedTable fstTable) (BoxedTable sndTable) =
 zipDbTables :: [(a, b)] -> DatabaseTable a -> DatabaseTable b -> DatabaseTable (a, b)
 zipDbTables zippedData fstTable sndTable = DatabaseTable {
     columnsWithContext = fstCols ++ sndCols,
+    qualifiedColumnsWithContext = M.unionWithKey ambiguousTableError fstQualCols sndQualCols,
     evaluationContext = evalCtxt,
     tableData = zippedData,
     isInScope = isInFstOrSndScope}
@@ -485,18 +455,21 @@ zipDbTables zippedData fstTable sndTable = DatabaseTable {
         toFstCtxt ctxt colId row = ctxt colId (fst row)
         toSndCtxt ctxt colId row = ctxt colId (snd row)
         
-        fstCols = [(expr, toFstCtxt ctxt) | (expr, ctxt) <- columnsWithContext fstTable]
-        sndCols = [(expr, toSndCtxt ctxt) | (expr, ctxt) <- columnsWithContext sndTable]
+        fstCols = mapSnd toFstCtxt (columnsWithContext fstTable)
+        sndCols = mapSnd toSndCtxt (columnsWithContext sndTable)
+        
+        fstQualCols = M.map (mapSnd toFstCtxt) (qualifiedColumnsWithContext fstTable)
+        sndQualCols = M.map (mapSnd toSndCtxt) (qualifiedColumnsWithContext sndTable)
         
         evalCtxt colId row =
             case (isInFstScope colId, isInSndScope colId) of
                 (True, False)   -> evaluationContext fstTable colId (fst row)
                 (False, True)   -> evaluationContext sndTable colId (snd row)
-                (True, True)    -> error $ "Error: ambiguous ID: " ++ show colId
-                (False, False)  -> idNotInScopeError colId
+                (True, True)    -> ambiguousColumnError $ columnToString colId
+                (False, False)  -> columnNotInScopeError $ columnToString colId
 
-idNotInScopeError :: ColumnIdentifier -> a
-idNotInScopeError colId = error $ "Error: not in scope: " ++ show colId
+mapSnd :: (a -> b) -> [(c, a)] -> [(c, b)]
+mapSnd f xs = [(x, f y) | (x, y) <- xs]
 
 -- TODO this ugly function needs to be modularized
 evalSQLFunction :: SQLFunction -> [EvaluatedExpression] -> EvaluatedExpression
@@ -504,7 +477,7 @@ evalSQLFunction sqlFun evaluatedArgs
     -- Global validation
     -- TODO this error should be more helpful than it is
     | argCountIsInvalid =
-        error $ "cannot apply " ++ show (length evaluatedArgs) ++
+        error $ "Error: cannot apply " ++ show (length evaluatedArgs) ++
                 " arguments to " ++ functionName sqlFun
     
     -- String functions
@@ -586,7 +559,7 @@ evalSQLFunction sqlFun evaluatedArgs
         evalUnaryAlgebra intFunc realFunc =
             if length evaluatedArgs /= 1 then
                 error $
-                    "internal error: found a " ++ show sqlFun ++
+                    "Internal Error: found a " ++ show sqlFun ++
                     " function with multiple args. please report this error"
             else
                 if useRealAlgebra arg1 then
@@ -598,3 +571,21 @@ evalSQLFunction sqlFun evaluatedArgs
 trimSpace :: String -> String
 trimSpace = f . f
     where f = reverse . dropWhile isSpace
+
+ambiguousTableError, noTableHeaderError, tableNotInScopeError, columnNotInScopeError, ambiguousColumnError :: String -> a
+ambiguousTableError tblName = error $ "Error: The table name \"" ++ tblName ++ "\" is ambiguous"
+noTableHeaderError tblName = error $ "Error: invalid table \"" ++ tblName ++ "\". There is no header row"
+tableNotInScopeError tblName = error $ "Error: failed to find a table named \"" ++ tblName ++ "\" in the current scope"
+columnNotInScopeError colName = error $ "Error: failed to find a column named \"" ++ colName ++ "\" in the current scope"
+ambiguousColumnError colName = error $ "Error: ambiguous column name (found multiple matches in the current scope): " ++ colName
+
+onPartFormattingError, joinOnRequiresBothTablesError :: a
+onPartFormattingError = error $
+    "Error: The \"ON\" part of a join must only contain " ++
+    "expression equalities joined together by \"AND\" like: " ++
+    "\"tbl1.id1 = table2.id1 AND tbl1.firstname = tbl2.name\""
+
+joinOnRequiresBothTablesError = error $
+    "Error: the expressions used in the \"ON\" part of a table join must use " ++
+    "identifiers from each of the two join tables like: " ++
+    "\"tbl1.id1 = table2.id1 AND tbl1.firstname = tbl2.name\""
