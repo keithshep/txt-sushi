@@ -26,7 +26,6 @@ module Database.TxtSushi.EvaluatedExpression (
     maybeCoerceBool,
     coerceBool) where
 
-import Data.Binary
 import Data.Char
 import Data.List
 
@@ -78,21 +77,6 @@ stringCompare expr1 expr2 = coerceString expr1 `compare` coerceString expr2
 -- base equality off of the Ord definition. pretty simple huh?
 instance Eq EvaluatedExpression where
     expr1 == expr2 = expr1 `compare` expr2 == EQ
-
-instance Binary EvaluatedExpression where
-    put (StringExpression  s)   = put (0 :: Word8) >> put s
-    put (RealExpression r)      = put (1 :: Word8) >> put r
-    put (IntExpression i)       = put (2 :: Word8) >> put i
-    put (BoolExpression b)      = put (3 :: Word8) >> put b
-    
-    get = do
-        typeWord <- get :: Get Word8
-        case typeWord of
-            0 -> get >>= return . StringExpression
-            1 -> get >>= return . RealExpression
-            2 -> get >>= return . IntExpression
-            3 -> get >>= return . BoolExpression
-            _ -> error $ "Internal Error: unexpected type word value: " ++ show typeWord
 
 coerceString :: EvaluatedExpression -> String
 coerceString (StringExpression string)  = string
