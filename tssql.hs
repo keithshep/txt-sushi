@@ -19,6 +19,7 @@ import System.IO
 import Text.ParserCombinators.Parsec
 
 import Database.TxtSushi.IO
+import Database.TxtSushi.ParseUtil
 import Database.TxtSushi.SQLExecution
 import Database.TxtSushi.SQLParser
 import Database.TxtSushi.Util.CommandLineArgument

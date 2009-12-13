@@ -30,7 +30,7 @@ import Data.Binary
 import Data.Char
 import Data.List
 
-import Database.TxtSushi.SQLParser
+import Database.TxtSushi.ParseUtil
 
 data EvaluatedExpression =
     StringExpression    String |

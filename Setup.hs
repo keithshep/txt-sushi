@@ -6,12 +6,15 @@ import Text.ParserCombinators.Parsec
 
 import Database.TxtSushi.SQLParser
 
-main = defaultMainWithHooks $ simpleUserHooks {runTests = runTxtSushiTests}
+main = defaultMain
+
+--main = defaultMainWithHooks $ simpleUserHooks {runTests = runTxtSushiTests}
 
 --------------------------------------------------------------------------------
 -- Test code
 --------------------------------------------------------------------------------
 
+{-
 runTxtSushiTests :: Args -> Bool -> PackageDescription -> LocalBuildInfo -> IO ()
 runTxtSushiTests _ _ _ _ = do
     let
@@ -195,3 +198,4 @@ testSqlSelect expectedResult selectStatementText = do
                     putStrLn "Success"
                 else
                     error $ "\n" ++ (show selectStatement) ++ "\nNOT EQUAL TO\n" ++ (show expectedResult)
+-}

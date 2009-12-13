@@ -24,12 +24,11 @@ import Data.Char
 import Data.Function
 import Data.List
 import qualified Data.Map as M
-import Text.Regex.Posix
 
-import Database.TxtSushi.SQLParser
+import Database.TxtSushi.SQLExpression
+import Database.TxtSushi.SQLFunctionDefinitions
 import Database.TxtSushi.EvaluatedExpression
 import Database.TxtSushi.ExternalSort
-import Database.TxtSushi.SQLParser
 import Database.TxtSushi.Transform
 
 -- | We will use the sort configuration to determine whether tables should
@@ -53,14 +52,14 @@ textTableToDatabaseTable tblName (headerNames:tblRows) =
         tableData = tblRows,
         isInScope = idInHeader}
     where
-        makeColExpr colName = ColumnExpression $ ColumnIdentifier Nothing colName
+        makeColExpr colName = ColumnExpression (ColumnIdentifier Nothing colName) colName
         
         idInHeader (ColumnIdentifier (Just _) _)        = False
         idInHeader (ColumnIdentifier Nothing colName)   = colName `elem` headerNames
         
-        evalCtxt (ColumnExpression colId@(ColumnIdentifier (Just _) _)) _ =
-            columnNotInScopeError $ columnToString colId
-        evalCtxt (ColumnExpression (ColumnIdentifier Nothing colName)) row =
+        evalCtxt (ColumnExpression (ColumnIdentifier (Just _) _) colStr) _ =
+            columnNotInScopeError colStr
+        evalCtxt (ColumnExpression (ColumnIdentifier Nothing colName) _) row =
             case elemIndices colName headerNames of
                 [colIndex]  -> SingleElement $ StringExpression (row !! colIndex)
                 []          -> columnNotInScopeError colName
@@ -89,8 +88,8 @@ emptyTable =
         tableData = [shouldNeverOccurError] :: [String],
         isInScope = const False}
     where
-        eval (ColumnExpression colId)   = columnNotInScopeError $ columnToString colId
-        eval expr                       = evalWithContext eval expr
+        eval (ColumnExpression _ colStr)    = columnNotInScopeError colStr
+        eval expr                           = evalWithContext eval expr
 
 
 -- | perform a SQL select with the given select statement on the
@@ -182,10 +181,10 @@ selectionToExpressions dbTable (AllColumnsFrom srcTblName) =
 selectionToExpressions dbTable (ExpressionColumn expr Nothing) =
     [(expr, evaluationContext dbTable)]
 selectionToExpressions dbTable (ExpressionColumn _ (Just exprAlias)) =
-    [(ColumnExpression $ ColumnIdentifier Nothing exprAlias, evaluationContext dbTable)]
+    [(ColumnExpression (ColumnIdentifier Nothing exprAlias) exprAlias, evaluationContext dbTable)]
 
 extractJoinExprs :: BoxedTable -> BoxedTable -> Expression -> [(Expression, Expression)]
-extractJoinExprs bTbl1@(BoxedTable tbl1) bTbl2@(BoxedTable tbl2) (FunctionExpression sqlFunc [arg1, arg2]) =
+extractJoinExprs bTbl1@(BoxedTable tbl1) bTbl2@(BoxedTable tbl2) (FunctionExpression sqlFunc [arg1, arg2] _) =
     case sqlFunc of
         SQLFunction "=" _ _     -> extractJoinExprPair
         SQLFunction "AND" _ _   ->
@@ -232,10 +231,10 @@ collapseGroups ::
     -> NestedDataGroups EvaluatedExpression
     -> EvaluatedExpression
 collapseGroups expr grps = case group (flattenGroups grps) of
-    [singleGroup]   -> head singleGroup
+    [singleGroup] -> head singleGroup
     
     -- it's an error if there is more than one grouping
-    manyGroups      ->
+    manyGroups ->
         let
             (elemsToShow, remaining) = splitAt 5 (map head manyGroups)
             commaSepElems = intercalate ", " (map coerceString elemsToShow)
@@ -284,8 +283,8 @@ data DatabaseTable a = DatabaseTable {
     isInScope :: ColumnIdentifier -> Bool}
 
 allIdentifiers :: Expression -> [ColumnIdentifier]
-allIdentifiers (FunctionExpression _ args) = concatMap allIdentifiers args
-allIdentifiers (ColumnExpression col) = [col]
+allIdentifiers (FunctionExpression _ args _) = concatMap allIdentifiers args
+allIdentifiers (ColumnExpression col _) = [col]
 allIdentifiers _ = []
 
 allInScope :: DatabaseTable a -> Expression -> Bool
@@ -318,9 +317,9 @@ addAliases (BoxedTable tbl) aliases =
         aliasedScope colId@(ColumnIdentifier Nothing colName) =
             M.member colName aliasMap || isInScope tbl colId
         
-        aliasedContext colExpr@(ColumnExpression (ColumnIdentifier (Just _) _)) =
+        aliasedContext colExpr@(ColumnExpression (ColumnIdentifier (Just _) _) _) =
             evaluationContext tbl colExpr
-        aliasedContext colExpr@(ColumnExpression (ColumnIdentifier Nothing colName)) =
+        aliasedContext colExpr@(ColumnExpression (ColumnIdentifier Nothing colName) _) =
             case M.lookup colName aliasMap of
                 Nothing     -> evaluationContext tbl colExpr
                 Just expr   -> aliasedContext expr
@@ -342,14 +341,14 @@ renameDbTable name (BoxedTable tbl) =
             | tblName == name   = isInScope tbl (ColumnIdentifier Nothing colName)
             | otherwise         = False
         
-        renameContext ctxt colExpr@(ColumnExpression (ColumnIdentifier Nothing _)) = ctxt colExpr
-        renameContext ctxt (ColumnExpression colId@(ColumnIdentifier (Just tblName) colName))
-            | tblName == name   = ctxt (ColumnExpression $ ColumnIdentifier Nothing colName)
-            | otherwise         = columnNotInScopeError $ columnToString colId
+        renameContext ctxt colExpr@(ColumnExpression (ColumnIdentifier Nothing _) _) = ctxt colExpr
+        renameContext ctxt (ColumnExpression (ColumnIdentifier (Just tblName) colName) colStr)
+            | tblName == name   = ctxt (ColumnExpression (ColumnIdentifier Nothing colName) colStr)
+            | otherwise         = columnNotInScopeError colStr
         renameContext ctxt expr = evalWithContext (renameContext ctxt) expr
 
 evalWithContext :: EvaluationContext a -> Expression -> a -> NestedDataGroups EvaluatedExpression
-evalWithContext ctxt (FunctionExpression sqlFun args) row =
+evalWithContext ctxt (FunctionExpression sqlFun args _) row =
     case (isAggregate sqlFun, args) of
         -- if its an aggregate function with a single arg use aggregate evaluation
         (True, [_]) -> aggregateEval
@@ -362,16 +361,16 @@ evalWithContext ctxt (FunctionExpression sqlFun args) row =
         aggregateEval =
             SingleElement $ evalSQLFunction sqlFun (concat (flattenGroups normEvaldArgs))
         standardEval = fmap evalGivenFun normEvaldArgs
-evalWithContext _ (StringConstantExpression s) _    = SingleElement (StringExpression s)
-evalWithContext _ (RealConstantExpression r)   _    = SingleElement (RealExpression r)
-evalWithContext _ (IntConstantExpression i)    _    = SingleElement (IntExpression i)
-evalWithContext _ (BoolConstantExpression b)   _    = SingleElement (BoolExpression b)
-evalWithContext _ (ColumnExpression _)         _    = shouldNeverOccurError
+evalWithContext _ (StringConstantExpression s _) _  = SingleElement (StringExpression s)
+evalWithContext _ (RealConstantExpression r _)   _  = SingleElement (RealExpression r)
+evalWithContext _ (IntConstantExpression i _)    _  = SingleElement (IntExpression i)
+evalWithContext _ (BoolConstantExpression b _)   _  = SingleElement (BoolExpression b)
+evalWithContext _ (ColumnExpression _ _)         _  = shouldNeverOccurError
 
 toGroupContext :: EvaluationContext a -> EvaluationContext [a]
 toGroupContext ctxt = grpCtxt
     where
-        grpCtxt funExpr@(FunctionExpression _ _) rowGrp = evalWithContext grpCtxt funExpr rowGrp
+        grpCtxt funExpr@(FunctionExpression _ _ _) rowGrp = evalWithContext grpCtxt funExpr rowGrp
         grpCtxt expr rowGrp = GroupedData $ map (ctxt expr) rowGrp
 
 groupDbTable ::
@@ -475,117 +474,16 @@ zipDbTables zippedData fstTable sndTable = DatabaseTable {
         fstQualCols = M.map (mapSnd toFstCtxt) (qualifiedColumnsWithContext fstTable)
         sndQualCols = M.map (mapSnd toSndCtxt) (qualifiedColumnsWithContext sndTable)
         
-        evalCtxt colExpr@(ColumnExpression colId) row =
+        evalCtxt colExpr@(ColumnExpression colId colStr) row =
             case (isInFstScope colId, isInSndScope colId) of
                 (True, False)   -> evaluationContext fstTable colExpr (fst row)
                 (False, True)   -> evaluationContext sndTable colExpr (snd row)
-                (True, True)    -> ambiguousColumnError $ columnToString colId
-                (False, False)  -> columnNotInScopeError $ columnToString colId
+                (True, True)    -> ambiguousColumnError colStr
+                (False, False)  -> columnNotInScopeError colStr
         evalCtxt expr row = evalWithContext evalCtxt expr row
 
 mapSnd :: (a -> b) -> [(c, a)] -> [(c, b)]
 mapSnd f xs = [(x, f y) | (x, y) <- xs]
-
--- TODO this ugly function needs to be modularized
-evalSQLFunction :: SQLFunction -> [EvaluatedExpression] -> EvaluatedExpression
-evalSQLFunction sqlFun evaluatedArgs
-    -- Global validation
-    -- TODO this error should be more helpful than it is
-    | argCountIsInvalid =
-        error $ "Error: cannot apply " ++ show (length evaluatedArgs) ++
-                " arguments to " ++ functionName sqlFun
-    
-    -- String functions
-    | sqlFun == upperFunction = StringExpression $ map toUpper (coerceString arg1)
-    | sqlFun == lowerFunction = StringExpression $ map toLower (coerceString arg1)
-    | sqlFun == trimFunction = StringExpression $ trimSpace (coerceString arg1)
-    | sqlFun == concatenateFunction = StringExpression $ concat (map coerceString evaluatedArgs)
-    | sqlFun == substringFromToFunction =
-        StringExpression $ take (coerceInt arg3) (drop (coerceInt arg2 - 1) (coerceString arg1))
-    | sqlFun == substringFromFunction =
-        StringExpression $ drop (coerceInt arg2 - 1) (coerceString arg1)
-    | sqlFun == regexMatchFunction = BoolExpression $ (coerceString arg1) =~ (coerceString arg2)
-    
-    -- unary functions
-    | sqlFun == absFunction = evalUnaryAlgebra abs abs
-    | sqlFun == negateFunction = evalUnaryAlgebra negate negate
-    
-    -- algebraic
-    | sqlFun == multiplyFunction = algebraWithCoercion (*) (*) evaluatedArgs
-    | sqlFun == divideFunction = RealExpression $ (coerceReal arg1) / (coerceReal arg2)
-    | sqlFun == plusFunction = algebraWithCoercion (+) (+) evaluatedArgs
-    | sqlFun == minusFunction = algebraWithCoercion (-) (-) evaluatedArgs
-    
-    -- boolean
-    | sqlFun == isFunction = BoolExpression (arg1 == arg2)
-    | sqlFun == isNotFunction = BoolExpression (arg1 /= arg2)
-    | sqlFun == lessThanFunction = BoolExpression (arg1 < arg2)
-    | sqlFun == lessThanOrEqualToFunction = BoolExpression (arg1 <= arg2)
-    | sqlFun == greaterThanFunction = BoolExpression (arg1 > arg2)
-    | sqlFun == greaterThanOrEqualToFunction = BoolExpression (arg1 >= arg2)
-    | sqlFun == andFunction = BoolExpression $ (coerceBool arg1) && (coerceBool arg2)
-    | sqlFun == orFunction = BoolExpression $ (coerceBool arg1) || (coerceBool arg2)
-    | sqlFun == notFunction = BoolExpression $ not (coerceBool arg1)
-    
-    -- aggregate
-    -- TODO AVG(...) holds the whole arg list in memory. reimplement!
-    | sqlFun == avgFunction =
-        RealExpression $
-            foldl1' (+) (map coerceReal evaluatedArgs) /
-            (fromIntegral $ length evaluatedArgs)
-    | sqlFun == countFunction = IntExpression $ length evaluatedArgs
-    | sqlFun == firstFunction = head evaluatedArgs
-    | sqlFun == lastFunction = last evaluatedArgs
-    | sqlFun == maxFunction = maximum evaluatedArgs
-    | sqlFun == minFunction = minimum evaluatedArgs
-    | sqlFun == sumFunction = algebraWithCoercion (+) (+) evaluatedArgs
-    
-    -- error!!
-    | otherwise = error $
-        "internal error: missing evaluation code for function: " ++
-        functionName sqlFun ++ ". please report this error"
-    
-    where
-        arg1 = head evaluatedArgs
-        arg2 = evaluatedArgs !! 1
-        arg3 = evaluatedArgs !! 2
-        algebraWithCoercion intFunc realFunc args =
-            if any useRealAlgebra args then
-                RealExpression $ foldl1' realFunc (map coerceReal args)
-            else
-                IntExpression $ foldl1' intFunc (map coerceInt args)
-        
-        useRealAlgebra (RealExpression _) = True
-        useRealAlgebra expr = case maybeCoerceInt expr of
-            Nothing -> True
-            Just _  -> False
-        
-        argCountIsInvalid =
-            let
-                -- TODO the use of length is bad (unnecessarily traversing
-                -- the entire arg list and keeping it in memory). Redo this
-                -- so that we only check length w.r.t. minArgs
-                argCount = length evaluatedArgs
-                minArgs = minArgCount sqlFun
-                argsFixed = argCountIsFixed sqlFun
-            in
-                argCount < minArgs || (argCount > minArgs && argsFixed)
-        
-        evalUnaryAlgebra intFunc realFunc =
-            if length evaluatedArgs /= 1 then
-                error $
-                    "Internal Error: found a " ++ show sqlFun ++
-                    " function with multiple args. please report this error"
-            else
-                if useRealAlgebra arg1 then
-                    RealExpression $ realFunc (coerceReal arg1)
-                else
-                    IntExpression $ intFunc (coerceInt arg1)
-
--- | trims leading and trailing spaces
-trimSpace :: String -> String
-trimSpace = f . f
-    where f = reverse . dropWhile isSpace
 
 ambiguousTableError, noTableHeaderError, tableNotInScopeError, columnNotInScopeError, ambiguousColumnError :: String -> a
 ambiguousTableError tblName = error $ "Error: The table name \"" ++ tblName ++ "\" is ambiguous"
