@@ -1,5 +1,5 @@
 Name:                txt-sushi
-Version:             0.4.0
+Version:             0.5.0
 Synopsis:            Spreadsheets are databases!
 Description:
     TxtSushi is a collection of command line utilities for processing
@@ -15,7 +15,7 @@ Author:              Keith Sheppard
 Maintainer:          keithshep@gmail.com
 Homepage:            http://keithsheppard.name/txt-sushi
 Bug-Reports:         http://code.google.com/p/txt-sushi/issues/list
-Build-Type:          Custom
+Build-Type:          Simple
 Category:            Database, Utils, Text
 Cabal-Version:       >= 1.6
 
@@ -65,9 +65,13 @@ Executable transposetab
 
 Library
   Exposed-Modules:
+    Database.TxtSushi.EvaluatedExpression
     Database.TxtSushi.ExternalSort
     Database.TxtSushi.IO
+    Database.TxtSushi.ParseUtil
     Database.TxtSushi.SQLExecution
+    Database.TxtSushi.SQLExpression
+    Database.TxtSushi.SQLFunctionDefinitions
     Database.TxtSushi.SQLParser
     Database.TxtSushi.Transform
     Database.TxtSushi.Util.CommandLineArgument
