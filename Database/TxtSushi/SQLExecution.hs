@@ -186,8 +186,8 @@ selectionToExpressions dbTable (ExpressionColumn _ (Just exprAlias)) =
 extractJoinExprs :: BoxedTable -> BoxedTable -> Expression -> [(Expression, Expression)]
 extractJoinExprs bTbl1@(BoxedTable tbl1) bTbl2@(BoxedTable tbl2) (FunctionExpression sqlFunc [arg1, arg2] _) =
     case sqlFunc of
-        SQLFunction "=" _ _     -> extractJoinExprPair
-        SQLFunction "AND" _ _   ->
+        SQLFunction "=" _ _ _   -> extractJoinExprPair
+        SQLFunction "AND" _ _ _ ->
             extractJoinExprs bTbl1 bTbl2 arg1 ++ extractJoinExprs bTbl1 bTbl2 arg2
         
         -- Only expecting "AND" or "="
@@ -357,9 +357,9 @@ evalWithContext ctxt (FunctionExpression sqlFun args _) row =
         _           -> standardEval
     where
         normEvaldArgs = normalizeGroups [ctxt arg row | arg <- args]
-        evalGivenFun = evalSQLFunction sqlFun
+        evalGivenFun = applyFunction sqlFun
         aggregateEval =
-            SingleElement $ evalSQLFunction sqlFun (concat (flattenGroups normEvaldArgs))
+            SingleElement $ applyFunction sqlFun (concat (flattenGroups normEvaldArgs))
         standardEval = fmap evalGivenFun normEvaldArgs
 evalWithContext _ (StringConstantExpression s _) _  = SingleElement (StringExpression s)
 evalWithContext _ (RealConstantExpression r _)   _  = SingleElement (RealExpression r)

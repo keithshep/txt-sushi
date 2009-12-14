@@ -13,7 +13,6 @@
 
 module Database.TxtSushi.SQLFunctionDefinitions (
     SQLFunction(..),
-    evalSQLFunction,
     normalSyntaxFunctions,
     infixFunctions,
     specialFunctions,
@@ -45,68 +44,89 @@ absFunction :: SQLFunction
 absFunction = SQLFunction {
     functionName    = "ABS",
     minArgCount     = 1,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyUnaryNumeric absFunction abs abs}
 
 upperFunction :: SQLFunction
 upperFunction = SQLFunction {
     functionName    = "UPPER",
     minArgCount     = 1,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyUnaryString upperFunction (map toUpper)}
 
 lowerFunction :: SQLFunction
 lowerFunction = SQLFunction {
     functionName    = "LOWER",
     minArgCount     = 1,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyUnaryString lowerFunction (map toLower)}
 
 trimFunction :: SQLFunction
 trimFunction = SQLFunction {
     functionName    = "TRIM",
     minArgCount     = 1,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyUnaryString trimFunction trimSpace}
 
 -- aggregates
 avgFunction :: SQLFunction
 avgFunction = SQLFunction {
     functionName    = "AVG",
     minArgCount     = 1,
-    argCountIsFixed = False}
+    argCountIsFixed = False,
+    applyFunction   = avgFun . checkArgCount avgFunction}
+    -- TODO this AVG(...) holds the whole arg list in memory. reimplement!
+    where
+        avgFun args = RealExpression $
+            foldl1' (+) (map coerceReal args) /
+            (fromIntegral $ length args)
 
 countFunction :: SQLFunction
 countFunction = SQLFunction {
     functionName    = "COUNT",
-    minArgCount     = 1,
-    argCountIsFixed = False}
+    minArgCount     = 0,
+    argCountIsFixed = False,
+    applyFunction   = IntExpression . length}
 
 firstFunction :: SQLFunction
 firstFunction = SQLFunction {
     functionName    = "FIRST",
     minArgCount     = 1,
-    argCountIsFixed = False}
+    argCountIsFixed = False,
+    applyFunction   = head . checkArgCount firstFunction}
 
 lastFunction :: SQLFunction
 lastFunction = SQLFunction {
     functionName    = "LAST",
     minArgCount     = 1,
-    argCountIsFixed = False}
+    argCountIsFixed = False,
+    applyFunction   = last . checkArgCount lastFunction}
 
 maxFunction :: SQLFunction
 maxFunction = SQLFunction {
     functionName    = "MAX",
     minArgCount     = 1,
-    argCountIsFixed = False}
+    argCountIsFixed = False,
+    applyFunction   = maximum . checkArgCount maxFunction}
 
 minFunction :: SQLFunction
 minFunction = SQLFunction {
     functionName    = "MIN",
     minArgCount     = 1,
-    argCountIsFixed = False}
+    argCountIsFixed = False,
+    applyFunction   = minimum . checkArgCount minFunction}
 
 sumFunction :: SQLFunction
 sumFunction = SQLFunction {
     functionName    = "SUM",
-    minArgCount     = 1,
-    argCountIsFixed = False}
+    minArgCount     = 0,
+    argCountIsFixed = False,
+    applyFunction   = foldl stepSum (IntExpression 0)}
+    where
+        stepSum prevSum currArg =
+            if useRealAlgebra prevSum || useRealAlgebra currArg
+                then RealExpression $ coerceReal prevSum + coerceReal currArg
+                else IntExpression $ coerceInt prevSum + coerceInt currArg
 
 -- Infix functions --
 infixFunctions :: [[SQLFunction]]
@@ -124,86 +144,110 @@ multiplyFunction :: SQLFunction
 multiplyFunction = SQLFunction {
     functionName    = "*",
     minArgCount     = 2,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyBinaryNumeric multiplyFunction (*) (*)}
 
 divideFunction :: SQLFunction
 divideFunction = SQLFunction {
     functionName    = "/",
     minArgCount     = 2,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = divFun . checkArgCount divideFunction}
+    where
+        divFun [numExpr, denomExpr] =
+            RealExpression $ (coerceReal numExpr) / (coerceReal denomExpr)
+        divFun _ = internalError
 
 plusFunction :: SQLFunction
 plusFunction = SQLFunction {
     functionName    = "+",
     minArgCount     = 2,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyBinaryNumeric plusFunction (+) (+)}
 
 minusFunction :: SQLFunction
 minusFunction = SQLFunction {
     functionName    = "-",
     minArgCount     = 2,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyBinaryNumeric minusFunction (-) (-)}
 
 -- Boolean
 isFunction :: SQLFunction
 isFunction = SQLFunction {
     functionName    = "=",
     minArgCount     = 2,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyBinaryComparison isFunction (==)}
 
 isNotFunction :: SQLFunction
 isNotFunction = SQLFunction {
     functionName    = "<>",
     minArgCount     = 2,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyBinaryComparison isNotFunction (/=)}
 
 lessThanFunction :: SQLFunction
 lessThanFunction = SQLFunction {
     functionName    = "<",
     minArgCount     = 2,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyBinaryComparison lessThanFunction (<)}
 
 lessThanOrEqualToFunction :: SQLFunction
 lessThanOrEqualToFunction = SQLFunction {
     functionName    = "<=",
     minArgCount     = 2,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyBinaryComparison lessThanOrEqualToFunction (<=)}
 
 greaterThanFunction :: SQLFunction
 greaterThanFunction = SQLFunction {
     functionName    = ">",
     minArgCount     = 2,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyBinaryComparison greaterThanFunction (>)}
 
 greaterThanOrEqualToFunction :: SQLFunction
 greaterThanOrEqualToFunction = SQLFunction {
     functionName    = ">=",
     minArgCount     = 2,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyBinaryComparison greaterThanOrEqualToFunction (>=)}
 
 andFunction :: SQLFunction
 andFunction = SQLFunction {
     functionName    = "AND",
     minArgCount     = 2,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyBinaryBooleanTest andFunction (&&)}
 
 orFunction :: SQLFunction
 orFunction = SQLFunction {
     functionName    = "OR",
     minArgCount     = 2,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyBinaryBooleanTest orFunction (||)}
 
 concatenateFunction :: SQLFunction
 concatenateFunction = SQLFunction {
     functionName    = "||",
     minArgCount     = 2,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = catExprs . checkArgCount concatenateFunction}
+    where
+        catExprs [arg1, arg2] = StringExpression $ (coerceString arg1) ++ (coerceString arg2)
+        catExprs _ = internalError
 
 regexMatchFunction :: SQLFunction
 regexMatchFunction = SQLFunction {
     functionName    = "=~",
     minArgCount     = 2,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = regexMatch . checkArgCount regexMatchFunction}
+    where
+        regexMatch [arg1, arg2] = BoolExpression $ (coerceString arg1) =~ (coerceString arg2)
+        regexMatch _ = internalError
 
 -- Functions with special syntax --
 specialFunctions :: [SQLFunction]
@@ -216,7 +260,8 @@ negateFunction :: SQLFunction
 negateFunction = SQLFunction {
     functionName    = "-",
     minArgCount     = 1,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyUnaryNumeric negateFunction negate negate}
 
 -- | SUBSTRING(extraction_string FROM starting_position [FOR length]
 --             [COLLATE collation_name])
@@ -225,115 +270,128 @@ substringFromFunction :: SQLFunction
 substringFromFunction = SQLFunction {
     functionName    = "SUBSTRING",
     minArgCount     = 2,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = substringFrom . checkArgCount substringFromFunction}
+    where
+        substringFrom [strExpr, fromExpr] = StringExpression $
+            drop (coerceInt fromExpr - 1) (coerceString strExpr)
+        substringFrom _ = internalError
 
 substringFromToFunction :: SQLFunction
 substringFromToFunction = SQLFunction {
     functionName    = "SUBSTRING",
     minArgCount     = 3,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = substringFromTo . checkArgCount substringFromToFunction}
+    where
+        substringFromTo [strExpr, fromExpr, toExpr] = StringExpression $
+            take (coerceInt toExpr) (drop (coerceInt fromExpr - 1) (coerceString strExpr))
+        substringFromTo _ = internalError
 
 notFunction :: SQLFunction
 notFunction = SQLFunction {
     functionName    = "NOT",
     minArgCount     = 1,
-    argCountIsFixed = True}
+    argCountIsFixed = True,
+    applyFunction   = applyUnaryBool notFunction not}
 
--- TODO this ugly function needs to be modularized
-evalSQLFunction :: SQLFunction -> [EvaluatedExpression] -> EvaluatedExpression
-evalSQLFunction sqlFun evaluatedArgs
-    -- Global validation
-    -- TODO this error should be more helpful than it is
-    | argCountIsInvalid =
-        error $ "Error: cannot apply " ++ show (length evaluatedArgs) ++
-                " arguments to " ++ functionName sqlFun
-    
-    -- String functions
-    | sqlFun == upperFunction = StringExpression $ map toUpper (coerceString arg1)
-    | sqlFun == lowerFunction = StringExpression $ map toLower (coerceString arg1)
-    | sqlFun == trimFunction = StringExpression $ trimSpace (coerceString arg1)
-    | sqlFun == concatenateFunction = StringExpression $ concat (map coerceString evaluatedArgs)
-    | sqlFun == substringFromToFunction =
-        StringExpression $ take (coerceInt arg3) (drop (coerceInt arg2 - 1) (coerceString arg1))
-    | sqlFun == substringFromFunction =
-        StringExpression $ drop (coerceInt arg2 - 1) (coerceString arg1)
-    | sqlFun == regexMatchFunction = BoolExpression $ (coerceString arg1) =~ (coerceString arg2)
-    
-    -- unary functions
-    | sqlFun == absFunction = evalUnaryAlgebra abs abs
-    | sqlFun == negateFunction = evalUnaryAlgebra negate negate
-    
-    -- algebraic
-    | sqlFun == multiplyFunction = algebraWithCoercion (*) (*) evaluatedArgs
-    | sqlFun == divideFunction = RealExpression $ (coerceReal arg1) / (coerceReal arg2)
-    | sqlFun == plusFunction = algebraWithCoercion (+) (+) evaluatedArgs
-    | sqlFun == minusFunction = algebraWithCoercion (-) (-) evaluatedArgs
-    
-    -- boolean
-    | sqlFun == isFunction = BoolExpression (arg1 == arg2)
-    | sqlFun == isNotFunction = BoolExpression (arg1 /= arg2)
-    | sqlFun == lessThanFunction = BoolExpression (arg1 < arg2)
-    | sqlFun == lessThanOrEqualToFunction = BoolExpression (arg1 <= arg2)
-    | sqlFun == greaterThanFunction = BoolExpression (arg1 > arg2)
-    | sqlFun == greaterThanOrEqualToFunction = BoolExpression (arg1 >= arg2)
-    | sqlFun == andFunction = BoolExpression $ (coerceBool arg1) && (coerceBool arg2)
-    | sqlFun == orFunction = BoolExpression $ (coerceBool arg1) || (coerceBool arg2)
-    | sqlFun == notFunction = BoolExpression $ not (coerceBool arg1)
-    
-    -- aggregate
-    -- TODO AVG(...) holds the whole arg list in memory. reimplement!
-    | sqlFun == avgFunction =
-        RealExpression $
-            foldl1' (+) (map coerceReal evaluatedArgs) /
-            (fromIntegral $ length evaluatedArgs)
-    | sqlFun == countFunction = IntExpression $ length evaluatedArgs
-    | sqlFun == firstFunction = head evaluatedArgs
-    | sqlFun == lastFunction = last evaluatedArgs
-    | sqlFun == maxFunction = maximum evaluatedArgs
-    | sqlFun == minFunction = minimum evaluatedArgs
-    | sqlFun == sumFunction = algebraWithCoercion (+) (+) evaluatedArgs
-    
-    -- error!!
-    | otherwise = error $
-        "internal error: missing evaluation code for function: " ++
-        functionName sqlFun ++ ". please report this error"
-    
+-- some evaluation helper functions
+
+applyUnaryString ::
+    SQLFunction
+    -> (String -> String)
+    -> [EvaluatedExpression]
+    -> EvaluatedExpression
+applyUnaryString sqlFun f =
+    StringExpression . f . coerceString . head . checkArgCount sqlFun
+
+applyBinaryBooleanTest ::
+    SQLFunction
+    -> (Bool -> Bool -> Bool)
+    -> [EvaluatedExpression]
+    -> EvaluatedExpression
+applyBinaryBooleanTest _ f [arg1, arg2] =
+        BoolExpression $ f (coerceBool arg1) (coerceBool arg2)
+applyBinaryBooleanTest sqlFun _ args  = badArgCountError sqlFun args
+
+applyBinaryComparison ::
+    SQLFunction
+    -> (t -> t -> Bool)
+    -> [t]
+    -> EvaluatedExpression
+applyBinaryComparison _      cmp [arg1, arg2] = BoolExpression $ cmp arg1 arg2
+applyBinaryComparison sqlFun _   args         = badArgCountError sqlFun args
+
+applyUnaryNumeric ::
+    SQLFunction
+    -> (Int -> Int)
+    -> (Double -> Double)
+    -> [EvaluatedExpression]
+    -> EvaluatedExpression
+applyUnaryNumeric _ intFunc realFunc [arg] =
+    if useRealAlgebra arg then
+        RealExpression $ realFunc (coerceReal arg)
+    else
+        IntExpression $ intFunc (coerceInt arg)
+applyUnaryNumeric sqlFun _ _ args  = badArgCountError sqlFun args
+
+applyBinaryNumeric ::
+    SQLFunction
+    -> (Int -> Int -> Int)
+    -> (Double -> Double -> Double)
+    -> [EvaluatedExpression]
+    -> EvaluatedExpression
+applyBinaryNumeric _ intFunc realFunc [arg1, arg2] =
+    if useRealAlgebra arg1 || useRealAlgebra arg2 then
+        RealExpression $ realFunc (coerceReal arg1) (coerceReal arg2)
+    else
+        IntExpression $ intFunc (coerceInt arg1) (coerceInt arg2)
+applyBinaryNumeric sqlFun _ _ args  = badArgCountError sqlFun args
+
+applyUnaryBool ::
+    SQLFunction
+    -> (Bool -> Bool)
+    -> [EvaluatedExpression]
+    -> EvaluatedExpression
+applyUnaryBool _      f [arg] = BoolExpression $ f (coerceBool arg)
+applyUnaryBool sqlFun _ args  = badArgCountError sqlFun args
+
+checkArgCount :: SQLFunction -> [a] -> [a]
+checkArgCount sqlFun args =
+    if argCountOK then args else badArgCountError sqlFun args
     where
-        arg1 = head evaluatedArgs
-        arg2 = evaluatedArgs !! 1
-        arg3 = evaluatedArgs !! 2
-        algebraWithCoercion intFunc realFunc args =
-            if any useRealAlgebra args then
-                RealExpression $ foldl1' realFunc (map coerceReal args)
-            else
-                IntExpression $ foldl1' intFunc (map coerceInt args)
+        minArgs = minArgCount sqlFun
         
-        useRealAlgebra (RealExpression _) = True
-        useRealAlgebra expr = case maybeCoerceInt expr of
-            Nothing -> True
-            Just _  -> False
-        
-        argCountIsInvalid =
-            let
-                -- TODO the use of length is bad (unnecessarily traversing
-                -- the entire arg list and keeping it in memory). Redo this
-                -- so that we only check length w.r.t. minArgs
-                argCount = length evaluatedArgs
-                minArgs = minArgCount sqlFun
-                argsFixed = argCountIsFixed sqlFun
-            in
-                argCount < minArgs || (argCount > minArgs && argsFixed)
-        
-        evalUnaryAlgebra intFunc realFunc =
-            if length evaluatedArgs /= 1 then
-                error $
-                    "Internal Error: found a " ++ show sqlFun ++
-                    " function with multiple args. please report this error"
-            else
-                if useRealAlgebra arg1 then
-                    RealExpression $ realFunc (coerceReal arg1)
-                else
-                    IntExpression $ intFunc (coerceInt arg1)
+        argCountOK =
+            if argCountIsFixed sqlFun
+                then length args == minArgs
+                else lenAtLeast 0 args
+            where
+                lenAtLeast cumLen (_:xt)
+                    | cumLen >= minArgs = True
+                    | otherwise         = lenAtLeast (cumLen + 1) xt
+                lenAtLeast cumLen [] = cumLen >= 0
+
+badArgCountError :: SQLFunction -> [a] -> b
+badArgCountError sqlFun args =
+    if argCountIsFixed sqlFun then error $
+        "Error: bad argument count in " ++ functionName sqlFun ++
+        " expected " ++ show (minArgCount sqlFun) ++
+        " arguments but was given " ++ show received
+    else error $
+        "Error: bad argument count in " ++ functionName sqlFun ++
+        " expected at least " ++ show (minArgCount sqlFun) ++
+        " arguments but was given " ++ show received
+    where received = length args
+
+internalError :: a
+internalError = error "Internal Error: this should never occur"
+
+useRealAlgebra :: EvaluatedExpression -> Bool
+useRealAlgebra (RealExpression _) = True
+useRealAlgebra expr = case maybeCoerceInt expr of
+    Nothing -> True
+    Just _  -> False
 
 -- | trims leading and trailing spaces
 trimSpace :: String -> String

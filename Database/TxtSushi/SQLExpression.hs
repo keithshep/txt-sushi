@@ -28,6 +28,8 @@ module Database.TxtSushi.SQLExpression (
 import Data.Char
 import Data.List
 
+import Database.TxtSushi.EvaluatedExpression
+
 --------------------------------------------------------------------------------
 -- The data definition for select statements
 --------------------------------------------------------------------------------
@@ -40,7 +42,6 @@ data SelectStatement = SelectStatement {
     maybeWhereFilter :: Maybe Expression,
     maybeGroupByHaving :: Maybe ([Expression], Maybe Expression),
     orderByItems :: [OrderByItem]}
-    deriving (Show, Ord, Eq)
 
 data TableExpression =
     TableIdentifier {
@@ -58,7 +59,6 @@ data TableExpression =
     SelectExpression {
         selectStatement :: SelectStatement,
         maybeTableAlias :: Maybe String}
-    deriving (Show, Ord, Eq)
 
 -- | convenience function for extracting all of the table names used by the
 --   given table expression
@@ -81,13 +81,11 @@ data ColumnSelection =
     ExpressionColumn {
         expression :: Expression,
         maybeColumnAlias :: Maybe String}
-    deriving (Show, Ord, Eq)
 
 data ColumnIdentifier =
     ColumnIdentifier {
         maybeTableName :: Maybe String,
         columnId :: String}
-    deriving (Show, Ord, Eq)
 
 data Expression =
     FunctionExpression {
@@ -109,18 +107,17 @@ data Expression =
     BoolConstantExpression {
         boolConstant :: Bool,
         stringRepresentation :: String}
-    deriving (Show, Ord, Eq)
 
 data SQLFunction = SQLFunction {
     functionName :: String,
     minArgCount :: Int,
-    argCountIsFixed :: Bool}
-    deriving (Show, Ord, Eq)
+    argCountIsFixed :: Bool,
+    applyFunction :: [EvaluatedExpression] -> EvaluatedExpression}
 
 -- | an aggregate function is one whose min function count is 1 and whose
 --   arg count is not fixed
 isAggregate :: SQLFunction -> Bool
-isAggregate sqlFun = minArgCount sqlFun == 1 && not (argCountIsFixed sqlFun)
+isAggregate = not . argCountIsFixed
 
 containsAggregates :: Expression -> Bool
 containsAggregates (FunctionExpression sqlFun args _) =
@@ -156,4 +153,3 @@ columnToString (ColumnIdentifier (Nothing) colId) = colId
 data OrderByItem = OrderByItem {
     orderExpression :: Expression,
     orderAscending :: Bool}
-    deriving (Show, Ord, Eq)
