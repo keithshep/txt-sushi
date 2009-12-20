@@ -120,9 +120,31 @@ atLeastOneExpr = sepByAtLeast 1 parseExpression commaSeparator
 parseColumnSelections :: GenParser Char st [ColumnSelection]
 parseColumnSelections =
     sepBy1 parseAnyColType (try commaSeparator)
-    where parseAnyColType = parseAllCols <|>
+    where parseAnyColType = parseRangeColumns <|>
+                            parseAllCols <|>
                             (try parseAllColsFromTbl) <|>
                             (try parseColExpression)
+
+parseRangeColumns :: GenParser Char st ColumnSelection
+parseRangeColumns = parseRangeInner
+    where
+        parseRangeInner = do
+            parseToken "FOR"
+            bindingId <- parseColumnId
+            parseToken "IN"
+            colRange <- parseColRange
+            parseToken "YIELD"
+            expr <- parseExpression
+            
+            return $ ExpressionColumnRange bindingId colRange expr
+            
+            where
+                parseColRange = brace $ do
+                    maybeStartCol <- maybeParse parseColumnId
+                    parseToken ".."
+                    maybeEndCol <- maybeParse parseColumnId
+                    
+                    return $ ColumnRange maybeStartCol maybeEndCol
 
 parseAllCols :: GenParser Char st ColumnSelection
 parseAllCols = parseToken "*" >> return AllColumns
@@ -145,7 +167,7 @@ parseColumnId :: GenParser Char st ColumnIdentifier
 parseColumnId = do
     firstId <- parseIdentifier
     
-    maybeFullyQual <- maybeParse $ (char '.' >> spaces)
+    maybeFullyQual <- maybeParse $ parseToken "."
     case maybeFullyQual of
         -- No '.' means it's a partially qualified column
         Nothing -> return $ ColumnIdentifier Nothing firstId
@@ -364,7 +386,7 @@ parseOpChar :: CharParser st Char
 parseOpChar = oneOf opChars
 
 opChars :: [Char]
-opChars = "~!@#$%^&*-+=|\\<>/?"
+opChars = "~!@#$%^&*-+=|\\<>/?."
 
 -- | find out if the given string ends with an op char
 endsWithOp :: String -> Bool
@@ -394,6 +416,14 @@ commaSeparator :: GenParser Char st Char
 commaSeparator = eatSpacesAfter $ char ','
 
 -- | Wraps parentheses parsers around the given inner parser
+brace :: GenParser Char st a -> GenParser Char st a
+brace innerParser = do
+    eatSpacesAfter $ char '['
+    innerParseResults <- innerParser
+    eatSpacesAfter $ char ']'
+    return innerParseResults
+
+-- | Wraps parentheses parsers around the given inner parser
 parenthesize :: GenParser Char st a -> GenParser Char st a
 parenthesize innerParser = do
     eatSpacesAfter $ char '('
@@ -412,8 +442,8 @@ reservedWords =
     map functionName normalSyntaxFunctions ++
     map functionName (concat infixFunctions) ++
     map functionName specialFunctions ++
-    ["BY","CROSS", "FROM", "FOR", "GROUP", "HAVING", "INNER", "JOIN", "ON",
-     "ORDER", "SELECT", "WHERE", "TRUE", "FALSE"]
+    ["BY","CROSS", "FROM", "FOR", "GROUP", "HAVING", "IN", "INNER", "JOIN", "ON",
+     "ORDER", "SELECT", "WHERE", "TRUE", "FALSE", "YIELD"]
 
 -- | tries parsing both the upper and lower case versions of the given string
 upperOrLower :: String -> GenParser Char st String

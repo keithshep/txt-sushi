@@ -20,6 +20,7 @@ module Database.TxtSushi.SQLExpression (
     Expression(..),
     SQLFunction(..),
     OrderByItem(..),
+    ColumnRange(..),
     isAggregate,
     selectStatementContainsAggregates,
     expressionToString,
@@ -80,12 +81,20 @@ data ColumnSelection =
     AllColumnsFrom {sourceTableName :: String} |
     ExpressionColumn {
         expression :: Expression,
-        maybeColumnAlias :: Maybe String}
+        maybeColumnAlias :: Maybe String} |
+    ExpressionColumnRange {
+        binding :: ColumnIdentifier,
+        range :: ColumnRange,
+        expression :: Expression}
+
+data ColumnRange = ColumnRange {
+    maybeStart :: Maybe ColumnIdentifier,
+    maybeEnd :: Maybe ColumnIdentifier}
 
 data ColumnIdentifier =
     ColumnIdentifier {
         maybeTableName :: Maybe String,
-        columnId :: String}
+        columnId :: String} deriving Eq
 
 data Expression =
     FunctionExpression {

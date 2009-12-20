@@ -178,6 +178,49 @@ selectionToExpressions dbTable (AllColumnsFrom srcTblName) =
     M.findWithDefault errMsg srcTblName (qualifiedColumnsWithContext dbTable)
     where errMsg = tableNotInScopeError srcTblName
 
+selectionToExpressions dbTable (ExpressionColumnRange bindId (ColumnRange maybeStartId maybeEndId) expr) =
+    rangeColsWCtxt
+    where
+        colsWCtxt = columnsWithContext dbTable
+        
+        rangeColsWCtxt = map updateColWCtxt (take rangeLen . drop startIndex $ colsWCtxt)
+            where
+                rangeLen = 1 + endIndex - startIndex
+                endIndex = maybe (length colsWCtxt - 1) indexOfId maybeEndId
+                startIndex = maybe 0 indexOfId maybeStartId
+        
+        exprMatchesId matcherId (ColumnExpression matcheeId _) =
+            case matcherId of
+                ColumnIdentifier (Just _) _      -> matcheeId == matcherId
+                ColumnIdentifier Nothing colName -> columnId matcheeId == colName
+        exprMatchesId _ _ = False
+
+        indexOfId theId = case findIndices (exprMatchesId theId) colExprs of
+            [index] -> index
+            []      -> columnNotInScopeError $ columnToString theId
+            _       -> ambiguousColumnError $ columnToString theId
+            where colExprs = map fst colsWCtxt
+        
+        updateColWCtxt (colExpr, colCtxt) =
+            (updateCol colExpr, updateContext colExpr colCtxt)
+        
+        updateContext colExpr colCtxt exprToEval@(ColumnExpression _ _) =
+            if exprMatchesId bindId exprToEval
+                then colCtxt colExpr
+                else evaluationContext dbTable exprToEval
+        updateContext colExpr colCtxt exprToEval@(FunctionExpression _ _ _) =
+            evalWithContext (updateContext colExpr colCtxt) exprToEval
+        updateContext _ _ exprToEval = evaluationContext dbTable exprToEval
+        
+        updateCol colExpr =
+            if exprMatchesId bindId expr
+                then expr {stringRepresentation = stringRepresentation colExpr}
+                else expr {
+                        stringRepresentation =
+                            columnToString bindId ++ " = " ++
+                            stringRepresentation colExpr ++ " in " ++
+                            stringRepresentation expr}
+
 selectionToExpressions dbTable (ExpressionColumn expr Nothing) =
     [(expr, evaluationContext dbTable)]
 selectionToExpressions dbTable (ExpressionColumn _ (Just exprAlias)) =
