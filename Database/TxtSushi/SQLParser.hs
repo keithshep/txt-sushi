@@ -415,7 +415,7 @@ parseIdentifier = do
 commaSeparator :: GenParser Char st Char
 commaSeparator = eatSpacesAfter $ char ','
 
--- | Wraps parentheses parsers around the given inner parser
+-- | Wraps braces parsers around the given inner parser
 brace :: GenParser Char st a -> GenParser Char st a
 brace innerParser = do
     eatSpacesAfter $ char '['
