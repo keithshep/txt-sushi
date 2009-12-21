@@ -309,10 +309,9 @@ parseNormalFunction sqlFunc =
 
 parseNormalFunctionArgs :: SQLFunction -> String -> GenParser Char st Expression
 parseNormalFunctionArgs sqlFunc sqlFuncStr = do
-    args <- parenthesize $ argSepBy (minArgCount sqlFunc) parseExpression commaSeparator
+    args <- parenthesize $ sepBy parseExpression commaSeparator
     return $ FunctionExpression sqlFunc args (sqlFuncStr ++ toArgListString args)
     where
-        argSepBy = if argCountIsFixed sqlFunc then sepByExactly else sepByAtLeast
         toArgListString argExprs =
             '(' : intercalate ", " (map expressionToString argExprs) ++ ")"
 

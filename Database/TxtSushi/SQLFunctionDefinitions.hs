@@ -364,24 +364,29 @@ checkArgCount sqlFun args =
         
         argCountOK =
             if argCountIsFixed sqlFun
-                then length args == minArgs
-                else lenAtLeast 0 args
+                then lengthEquals args minArgs
+                else lengthAtLeast args minArgs
             where
-                lenAtLeast cumLen (_:xt)
-                    | cumLen >= minArgs = True
-                    | otherwise         = lenAtLeast (cumLen + 1) xt
-                lenAtLeast cumLen [] = cumLen >= 0
+                lengthEquals xs len = go xs 0
+                    where
+                        go [] cumLen = cumLen == len
+                        go (_:yt) cumLen = if cumLen >= len then False else go yt (cumLen + 1)
+                
+                lengthAtLeast xs len = go xs 0
+                    where
+                        go [] cumLen = cumLen >= len
+                        go (_:yt) cumLen = if cumLen >= len then True else go yt (cumLen + 1)
 
 badArgCountError :: SQLFunction -> [a] -> b
 badArgCountError sqlFun args =
     if argCountIsFixed sqlFun then error $
         "Error: bad argument count in " ++ functionName sqlFun ++
         " expected " ++ show (minArgCount sqlFun) ++
-        " arguments but was given " ++ show received
+        " argument(s) but was given " ++ show received
     else error $
         "Error: bad argument count in " ++ functionName sqlFun ++
         " expected at least " ++ show (minArgCount sqlFun) ++
-        " arguments but was given " ++ show received
+        " argument(s) but was given " ++ show received
     where received = length args
 
 internalError :: a

@@ -185,6 +185,7 @@ sepByExactly itemCount itemParser sepParser =
 
 -- | parse `itemParser`s seperated by at least `minCount` `sepParser`s
 sepByAtLeast :: Int -> GenParser tok st a -> GenParser tok st sep -> GenParser tok st [a]
+sepByAtLeast 0 itemParser sepParser = sepBy itemParser sepParser
 sepByAtLeast minCount itemParser sepParser = do
     minResults <- sepByExactly minCount itemParser sepParser
     tailResults <-
