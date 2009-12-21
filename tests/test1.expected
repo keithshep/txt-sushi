@@ -1,0 +1,5 @@
+F.EmployeeID,F.LastName,S.EmployeeID,S.LastName,F.Country
+123,Rafferty,124,Jones,Australia
+123,Rafferty,145,Steinberg,Australia
+124,Jones,145,Steinberg,Australia
+305,Smith,306,Jasper,United Kingdom

@@ -1,0 +1,10 @@
+build 36 bp Position,strain = CAST/EiJ in upper(strain) = C57BL/6J,strain = CBA/J in upper(strain) = C57BL/6J,strain = CE/J in upper(strain) = C57BL/6J,strain = CZECHII/EiJ in upper(strain) = C57BL/6J,strain = DBA/1J in upper(strain) = C57BL/6J
+3010663,false,true,true,true,true
+3011241,true,true,true,false,true
+3011392,false,true,true,true,true
+3011789,false,true,true,false,true
+3013031,false,true,true,false,true
+3013292,false,true,true,true,true
+3013477,false,true,true,true,true
+3350959,true,true,true,true,true
+3353019,false,true,true,false,true

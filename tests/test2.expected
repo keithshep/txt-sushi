@@ -1,0 +1,4 @@
+Customer,SUM(OrderPrice)
+Hansen,2000
+Jensen,2000
+Nilsen,1700
