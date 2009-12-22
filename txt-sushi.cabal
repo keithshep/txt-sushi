@@ -76,7 +76,6 @@ Library
     Database.TxtSushi.Transform
     Database.TxtSushi.Util.CommandLineArgument
     Database.TxtSushi.Util.IOUtil
-    Database.TxtSushi.Util.ListUtil
   
   Build-Depends:    base >= 3 && < 5,binary,bytestring,containers,directory,parsec,regex-posix
   GHC-Options:      -O2 -Wall

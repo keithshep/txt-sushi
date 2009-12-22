@@ -13,7 +13,6 @@ module Database.TxtSushi.FlatFile (
     doubleQuote) where
 
 import Data.List
-import Database.TxtSushi.Util.ListUtil
 
 {- |
 'Format' allows you to specify different flat-file formats so that you
@@ -121,6 +120,19 @@ encodeField format field =
         (quote format) ++ field ++ (quote format)
     else
         field
+
+{-
+replace all instances of 'targetSublist' found in 'list' with
+'replacementList'
+-}
+replaceAll :: (Eq a) => [a] -> [a] -> [a] -> [a]
+replaceAll [] _ _ = []
+replaceAll list@(listHead:listTail) targetSublist replacementList =
+    if targetSublist `isPrefixOf` list then
+        let remainingList = drop (length targetSublist) list
+        in  replacementList ++ (replaceAll remainingList targetSublist replacementList)
+    else
+        listHead:(replaceAll listTail targetSublist replacementList)
 
 {- |
 Parse the given text using the given flat file 'Format'. The result
