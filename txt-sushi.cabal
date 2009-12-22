@@ -1,6 +1,6 @@
 Name:                txt-sushi
 Version:             0.5.0
-Synopsis:            Spreadsheets are databases!
+Synopsis:            The SQL link in your *NIX chain
 Description:
     TxtSushi is a collection of command line utilities for processing
     comma-separated and tab-delimited files (AKA flat files, spreadsheets).
@@ -16,7 +16,7 @@ Maintainer:          keithshep@gmail.com
 Homepage:            http://keithsheppard.name/txt-sushi
 Bug-Reports:         http://code.google.com/p/txt-sushi/issues/list
 Build-Type:          Simple
-Category:            Database, Utils, Text
+Category:            Database, Console
 Cabal-Version:       >= 1.6
 
 Source-Repository head
@@ -26,7 +26,7 @@ Source-Repository head
 Source-Repository this
   type:     darcs
   location: http://patch-tag.com/r/keithshep/txt-sushi/pullrepo
-  tag:      0.4.0
+  tag:      0.5.0
 
 Executable tssql
   Main-Is:          tssql.hs
