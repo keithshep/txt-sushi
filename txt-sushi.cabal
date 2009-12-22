@@ -67,7 +67,7 @@ Library
   Exposed-Modules:
     Database.TxtSushi.EvaluatedExpression
     Database.TxtSushi.ExternalSort
-    Database.TxtSushi.IO
+    Database.TxtSushi.FlatFile
     Database.TxtSushi.ParseUtil
     Database.TxtSushi.SQLExecution
     Database.TxtSushi.SQLExpression

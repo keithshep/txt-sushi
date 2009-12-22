@@ -2,7 +2,7 @@ import System.Directory
 import System.Environment
 import System.IO
 
-import Database.TxtSushi.IO
+import Database.TxtSushi.FlatFile
 import Database.TxtSushi.Util.IOUtil
 
 main :: IO ()
