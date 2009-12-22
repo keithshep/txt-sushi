@@ -1,4 +1,4 @@
-module Database.TxtSushi.Util.IOUtil (
+module Database.TxtSushi.IOUtil (
     bufferStdioToTempFile,
     getContentsFromFileOrStdin,
     printSingleFileUsage) where

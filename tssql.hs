@@ -18,12 +18,12 @@ import System.IO
 
 import Text.ParserCombinators.Parsec
 
+import Database.TxtSushi.CommandLineArgument
 import Database.TxtSushi.FlatFile
+import Database.TxtSushi.IOUtil
 import Database.TxtSushi.ParseUtil
 import Database.TxtSushi.SQLExecution
 import Database.TxtSushi.SQLParser
-import Database.TxtSushi.Util.CommandLineArgument
-import Database.TxtSushi.Util.IOUtil
 
 import Paths_txt_sushi
 

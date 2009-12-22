@@ -1,4 +1,4 @@
-module Database.TxtSushi.Util.CommandLineArgument (
+module Database.TxtSushi.CommandLineArgument (
     extractCommandLineArguments,
     formatCommandLine,
     CommandLineDescription(CommandLineDescription),
