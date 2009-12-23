@@ -34,7 +34,7 @@ import Database.TxtSushi.SQLExpression
 -- Functions with "normal" syntax --
 normalSyntaxFunctions :: [SQLFunction]
 normalSyntaxFunctions =
-    [absFunction, upperFunction, lowerFunction, trimFunction,
+    [absFunction, upperFunction, lowerFunction, trimFunction, ifThenElseFunction,
      -- all aggregates except count which accepts a (*)
      avgFunction, firstFunction, lastFunction, maxFunction,
      minFunction, sumFunction]
@@ -67,6 +67,19 @@ trimFunction = SQLFunction {
     minArgCount     = 1,
     argCountIsFixed = True,
     applyFunction   = applyUnaryString trimFunction trimSpace}
+
+ifThenElseFunction :: SQLFunction
+ifThenElseFunction = SQLFunction {
+    functionName    = "IF_THEN_ELSE",
+    minArgCount     = 3,
+    argCountIsFixed = True,
+    applyFunction   = ifThenElse . checkArgCount ifThenElseFunction}
+    where
+        ifThenElse [ifExpr, thenExpr, elseExpr] =
+            if coerceBool ifExpr
+            then thenExpr
+            else elseExpr
+        ifThenElse _ = internalError
 
 -- aggregates
 avgFunction :: SQLFunction
