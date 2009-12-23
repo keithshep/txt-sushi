@@ -1,0 +1,10 @@
+build 36 bp Position,"strain = CAST/EiJ in if_then_else(upper(strain) = C57BL/6J, 'B6', 'NON-B6')","strain = CBA/J in if_then_else(upper(strain) = C57BL/6J, 'B6', 'NON-B6')","strain = CE/J in if_then_else(upper(strain) = C57BL/6J, 'B6', 'NON-B6')","strain = CZECHII/EiJ in if_then_else(upper(strain) = C57BL/6J, 'B6', 'NON-B6')","strain = DBA/1J in if_then_else(upper(strain) = C57BL/6J, 'B6', 'NON-B6')"
+3010663,NON-B6,B6,B6,B6,B6
+3011241,B6,B6,B6,NON-B6,B6
+3011392,NON-B6,B6,B6,B6,B6
+3011789,NON-B6,B6,B6,NON-B6,B6
+3013031,NON-B6,B6,B6,NON-B6,B6
+3013292,NON-B6,B6,B6,B6,B6
+3013477,NON-B6,B6,B6,B6,B6
+3350959,B6,B6,B6,B6,B6
+3353019,NON-B6,B6,B6,NON-B6,B6
