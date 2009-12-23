@@ -29,7 +29,7 @@ import Database.TxtSushi.SQLExpression
 import Database.TxtSushi.SQLFunctionDefinitions
 import Database.TxtSushi.EvaluatedExpression
 import Database.TxtSushi.ExternalSort
-import Database.TxtSushi.Transform
+import Database.TxtSushi.Relational
 
 -- | We will use the sort configuration to determine whether tables should
 --   be sorted external or in memory

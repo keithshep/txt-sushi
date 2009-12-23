@@ -1,7 +1,7 @@
 {- |
 Simple table transformations
 -}
-module Database.TxtSushi.Transform (
+module Database.TxtSushi.Relational (
     joinTables,
     crossJoinTables,
     joinPresortedTables) where

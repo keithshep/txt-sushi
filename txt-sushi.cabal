@@ -71,11 +71,11 @@ Library
     Database.TxtSushi.FlatFile
     Database.TxtSushi.IOUtil
     Database.TxtSushi.ParseUtil
+    Database.TxtSushi.Relational
     Database.TxtSushi.SQLExecution
     Database.TxtSushi.SQLExpression
     Database.TxtSushi.SQLFunctionDefinitions
     Database.TxtSushi.SQLParser
-    Database.TxtSushi.Transform
   
   Build-Depends:    base >= 3 && < 5,binary,bytestring,containers,directory,parsec,regex-posix
   GHC-Options:      -O2 -Wall
