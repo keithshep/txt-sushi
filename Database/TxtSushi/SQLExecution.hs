@@ -105,7 +105,11 @@ select sortCfg selectStmt tableMap =
         filteredTbl = maybeFilterTable (maybeWhereFilter selectStmt) fromTblWithAliases
         groupedTbl = maybeGroupTable sortCfg selectStmt filteredTbl
     in
-        finishWithNormalSelect sortCfg selectStmt groupedTbl
+        selectColumns $ sortDbTable sortCfg (orderByItems selectStmt) groupedTbl
+    where
+        selectColumns (BoxedTable unboxedOrderedTbl) =
+            BoxedTable unboxedOrderedTbl {columnsWithContext =
+                concatMap (selectionToExpressions unboxedOrderedTbl) (columnSelections selectStmt)}
 
 maybeGroupTable :: SortConfiguration -> SelectStatement -> BoxedTable -> BoxedTable
 maybeGroupTable sortCfg selectStmt table =
@@ -163,14 +167,6 @@ evalTableExpression sortCfg tblExpr tableMap =
                 joinedTbl = crossJoinDbTables leftJoinTbl rightJoinTbl
             in
                 maybeRename maybeTblAlias joinedTbl
-
-finishWithNormalSelect :: SortConfiguration -> SelectStatement -> BoxedTable -> BoxedTable
-finishWithNormalSelect sortCfg selectStmt filteredDbTable =
-    selectOrderedResults $ sortDbTable sortCfg (orderByItems selectStmt) filteredDbTable
-    where
-        selectOrderedResults (BoxedTable unboxedOrderedTbl) =
-            BoxedTable unboxedOrderedTbl {columnsWithContext =
-                concatMap (selectionToExpressions unboxedOrderedTbl) (columnSelections selectStmt)}
 
 selectionToExpressions :: DatabaseTable a -> ColumnSelection -> [(Expression, EvaluationContext a)]
 selectionToExpressions dbTable AllColumns = columnsWithContext dbTable
