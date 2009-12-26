@@ -105,11 +105,22 @@ select sortCfg selectStmt tableMap =
         filteredTbl = maybeFilterTable (maybeWhereFilter selectStmt) fromTblWithAliases
         groupedTbl = maybeGroupTable sortCfg selectStmt filteredTbl
     in
-        selectColumns $ sortDbTable sortCfg (orderByItems selectStmt) groupedTbl
+        selectColumns $ sortDbTable (orderByItems selectStmt) groupedTbl
     where
         selectColumns (BoxedTable unboxedOrderedTbl) =
             BoxedTable unboxedOrderedTbl {columnsWithContext =
                 concatMap (selectionToExpressions unboxedOrderedTbl) (columnSelections selectStmt)}
+        
+        sortDbTable [] boxedTbl = boxedTbl
+        sortDbTable orderBys (BoxedTable table) =
+            BoxedTable table {tableData = sortOnOrderBys (tableData table)}
+            where
+                ordAscs = map orderAscending orderBys
+                ordExprs = map orderExpression orderBys
+                
+                evalCtxt = evaluationContext table
+                rowOrd row = [evalCtxt expr row | expr <- ordExprs]
+                sortOnOrderBys = sortByCfg sortCfg (compareWithDirection ordAscs `on` rowOrd)
 
 maybeGroupTable :: SortConfiguration -> SelectStatement -> BoxedTable -> BoxedTable
 maybeGroupTable sortCfg selectStmt table =
@@ -438,21 +449,6 @@ singleGroupDbTable (BoxedTable tbl) =
         qualifiedColumnsWithContext = M.map (mapSnd toGroupContext) (qualifiedColumnsWithContext tbl),
         evaluationContext = toGroupContext $ evaluationContext tbl,
         tableData = [tableData tbl]}
-
-sortDbTable ::
-    SortConfiguration
-    -> [OrderByItem]
-    -> BoxedTable
-    -> BoxedTable
-sortDbTable sortCfg orderBys (BoxedTable table) =
-    BoxedTable table {tableData = sortOnOrderBys (tableData table)}
-    where
-        ordAscs = map orderAscending orderBys
-        ordExprs = map orderExpression orderBys
-        
-        evalCtxt = evaluationContext table
-        rowOrd row = [evalCtxt expr row | expr <- ordExprs]
-        sortOnOrderBys = sortByCfg sortCfg (compareWithDirection ordAscs `on` rowOrd)
 
 compareWithDirection :: (Ord a) => [Bool] -> [a] -> [a] -> Ordering
 compareWithDirection (asc:ascTail) (x:xt) (y:yt) = case x `compare` y of
