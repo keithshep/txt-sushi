@@ -12,6 +12,7 @@ module Database.TxtSushi.FlatFile (
     tabDelimitedFormat,
     doubleQuote) where
 
+import Data.Function
 import Data.List
 
 {- |
@@ -21,13 +22,16 @@ can use 'parseTable' for CSV, tab-delimited etc.
 data Format = Format {
     quote :: String,
     fieldDelimiter :: String,
-    rowDelimiter :: String} deriving (Show)
+    rowDelimiters :: [String]} deriving (Show)
+
+defaultRowDelimiter :: Format -> String
+defaultRowDelimiter = head . rowDelimiters
 
 csvFormat :: Format
-csvFormat = Format "\"" "," "\n"
+csvFormat = Format "\"" "," ["\n", "\r", "\n\r", "\r\n"]
 
 tabDelimitedFormat :: Format
-tabDelimitedFormat = Format "\"" "\t" "\n"
+tabDelimitedFormat = Format "\"" "\t" ["\n", "\r", "\n\r", "\r\n"]
 
 {- |
 get a quote escape sequence for the given 'Format'
@@ -90,7 +94,7 @@ the given 'Format'
 formatTable :: Format -> [[String]] -> String
 formatTable _ [] = ""
 formatTable format (headRow:tableTail) =
-    (formatRow format headRow) ++ (rowDelimiter format) ++ (formatTable format tableTail)
+    (formatRow format headRow) ++ (defaultRowDelimiter format) ++ (formatTable format tableTail)
 
 {- |
 Format the row into a flat file sub-string using the given 'Format'
@@ -115,7 +119,7 @@ encodeField format field =
     if (quote format) `isInfixOf` field then
         let escapedField = replaceAll field (quote format) (doubleQuote format)
         in  (quote format) ++ escapedField ++ (quote format)
-    else if (rowDelimiter format) `isInfixOf` field ||
+    else if any (`isInfixOf` field) (rowDelimiters format) ||
             (fieldDelimiter format) `isInfixOf` field then
         (quote format) ++ field ++ (quote format)
     else
@@ -140,10 +144,19 @@ is a list of list of strings. The strings are fields and the string
 lists are rows
 -}
 parseTable :: Format -> String -> [[String]]
-parseTable _ [] = []
-parseTable format text =
-    let (nextLine, remainingText) = parseLine format text
-    in  nextLine:(parseTable  format remainingText)
+parseTable format text = go text
+    where
+        -- sorting the delimiters from shortest to longest allows us to
+        -- guarantee that we don't mistake a multi-char newline as two single
+        -- char newlines. The code in parseUnquotedField works on this
+        -- assumption
+        newFormat = format {
+            rowDelimiters = sortBy (compare `on` negate . length) (rowDelimiters format)}
+        
+        go "" = []
+        go txt =
+            let (nextLine, remainingText) = parseLine newFormat txt
+            in  nextLine : go remainingText
 
 -- parse a row giving (rowFields, remainingText)
 parseLine :: Format -> String -> ([String], String)
@@ -206,13 +219,15 @@ parseUnquotedField format text@(textHead:textTail) =
         let tailOfDelimiter = drop (length (fieldDelimiter format)) text
         in  ([], True, tailOfDelimiter)
     
-    -- if we hit a row delimiter: return an empty string and let caller know there
-    -- are no more fields in this row
-    else if (rowDelimiter format) `isPrefixOf` text then
-        let tailOfDelimiter = drop (length (rowDelimiter format)) text
-        in  ([], False, tailOfDelimiter)
+    else case findIndex (`isPrefixOf` text) (rowDelimiters format) of
     
-    -- just another character... toss it in the field and keep going
-    else
-        let (fieldTail, moreFieldsInRow, remainingText) = parseUnquotedField format textTail
-        in  (textHead:fieldTail, moreFieldsInRow, remainingText)
+        Nothing ->
+            -- just another character... toss it in the field and keep going
+            let (fieldTail, moreFieldsInRow, remainingText) = parseUnquotedField format textTail
+            in  (textHead:fieldTail, moreFieldsInRow, remainingText)
+        
+        Just delimIndex ->
+            -- if we hit a row delimiter: return an empty string and let caller know there
+            -- are no more fields in this row
+            let tailOfDelimiter = drop (length (rowDelimiters format !! delimIndex)) text
+            in  ([], False, tailOfDelimiter)
