@@ -11,7 +11,7 @@
 -----------------------------------------------------------------------------
 import Data.List
 import Data.Version (Version(..))
-import qualified Data.Map as Map
+import qualified Data.Map as M
 import System.Environment
 import System.Exit
 import System.IO
@@ -31,7 +31,7 @@ helpOption :: OptionDescription
 helpOption = OptionDescription {
     isRequired              = False,
     optionFlag              = "-help",
-    argumentNames           = [],
+    argumentNames           = ["function_or_keyword"],
     minArgumentCount        = 0,
     argumentCountIsFixed    = True}
 
@@ -70,12 +70,12 @@ validateTableNames (argTblHead:argTblTail) selectTbls =
         error $ "The given table name \"" ++ argTblHead ++
                 "\" does not appear in the SELECT statement"
 
-tableArgsToMap :: [[String]] -> Map.Map String String
-tableArgsToMap [] = Map.empty
+tableArgsToMap :: [[String]] -> M.Map String String
+tableArgsToMap [] = M.empty
 tableArgsToMap (currTableArgs:tailTableArgs) =
     case currTableArgs of
         [fileName, tblName] ->
-            Map.insert fileName tblName (tableArgsToMap tailTableArgs)
+            M.insert fileName tblName (tableArgsToMap tailTableArgs)
         _ ->
             error $ "the \"" ++ (optionFlag tableDefOption) ++
                     "\" option should have exactly two arguments"
@@ -94,9 +94,9 @@ printUsage progName = do
     where
         versionStr = intercalate "." (map show $ versionBranch version)
 
-argsToSortConfig :: Map.Map OptionDescription a -> SortConfiguration
+argsToSortConfig :: M.Map OptionDescription a -> SortConfiguration
 argsToSortConfig argMap =
-    if Map.member externalSortOption argMap then UseExternalSort else UseInMemorySort
+    if M.member externalSortOption argMap then UseExternalSort else UseInMemorySort
 
 main :: IO ()
 main = do
@@ -104,7 +104,7 @@ main = do
     progName <- getProgName
     
     let (argMap, argTail) = extractCommandLineArguments sqlCmdLine args
-        showHelp = Map.member helpOption argMap || length argTail /= 1
+        showHelp = M.member helpOption argMap || length argTail /= 1
         parseOutcome = parse (withTrailing eof parseSelectStatement) "" (head argTail)
     
     if showHelp then printUsage progName else
@@ -113,27 +113,27 @@ main = do
             Right selectStmt ->
                 let
                     -- create a table file map from the user args
-                    tableArgs = Map.findWithDefault [] tableDefOption argMap
+                    tableArgs = M.findWithDefault [] tableDefOption argMap
                     tableArgMap = tableArgsToMap tableArgs
                     
                     -- get a default table to file map from the select statement
                     selectTblNames = allMaybeTableNames (maybeFromTable selectStmt)
-                    defaultTblMap = Map.fromList (zip selectTblNames selectTblNames)
+                    defaultTblMap = M.fromList (zip selectTblNames selectTblNames)
                     
                     -- join the two with arg values taking precidence over
                     -- the default values
-                    finalTblFileMap = tableArgMap `Map.union` defaultTblMap
+                    finalTblFileMap = tableArgMap `M.union` defaultTblMap
                 in
                     -- turn the files into strings
-                    if validateTableNames (Map.keys tableArgMap) selectTblNames
+                    if validateTableNames (M.keys tableArgMap) selectTblNames
                         then do
-                            let contentsMap = Map.map getContentsFromFileOrStdin finalTblFileMap
+                            let contentsMap = M.map getContentsFromFileOrStdin finalTblFileMap
                             
-                            unwrappedContents <- unwrapMapList $ Map.toList contentsMap
+                            unwrappedContents <- unwrapMapList $ M.toList contentsMap
                             
-                            let unwrappedContentsMap = Map.fromList unwrappedContents
-                                textTableMap = Map.map (parseTable csvFormat) unwrappedContentsMap
-                                dbTableMap = Map.mapWithKey textTableToDatabaseTable textTableMap
+                            let unwrappedContentsMap = M.fromList unwrappedContents
+                                textTableMap = M.map (parseTable csvFormat) unwrappedContentsMap
+                                dbTableMap = M.mapWithKey textTableToDatabaseTable textTableMap
                                 sortCfg = argsToSortConfig argMap
                                 selectedDbTable = select sortCfg selectStmt dbTableMap
                                 selectedTxtTable = databaseTableToTextTable selectedDbTable
