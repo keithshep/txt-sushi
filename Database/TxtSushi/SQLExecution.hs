@@ -236,8 +236,8 @@ selectionToExpressions dbTable (ExpressionColumn _ (Just exprAlias)) =
 extractJoinExprs :: BoxedTable -> BoxedTable -> Expression -> [(Expression, Expression)]
 extractJoinExprs bTbl1@(BoxedTable tbl1) bTbl2@(BoxedTable tbl2) (FunctionExpression sqlFunc [arg1, arg2] _) =
     case sqlFunc of
-        SQLFunction "=" _ _ _   -> extractJoinExprPair
-        SQLFunction "AND" _ _ _ ->
+        SQLFunction "=" _ _ _ _ _   -> extractJoinExprPair
+        SQLFunction "AND" _ _ _ _ _ ->
             extractJoinExprs bTbl1 bTbl2 arg1 ++ extractJoinExprs bTbl1 bTbl2 arg2
         
         -- Only expecting "AND" or "="

@@ -121,6 +121,8 @@ data SQLFunction = SQLFunction {
     functionName :: String,
     minArgCount :: Int,
     argCountIsFixed :: Bool,
+    functionGrammar :: String,
+    functionDescription :: String,
     applyFunction :: [EvaluatedExpression] -> EvaluatedExpression}
 
 -- | an aggregate function is one whose min function count is 1 and whose
