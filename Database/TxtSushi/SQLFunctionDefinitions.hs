@@ -35,11 +35,34 @@ import Database.TxtSushi.SQLExpression
 normalSyntaxFunctions :: [SQLFunction]
 normalSyntaxFunctions =
     [absFunction, upperFunction, lowerFunction, trimFunction, ifThenElseFunction,
+     asIntFunction, asRealFunction,
      -- all aggregates except count which accepts a (*)
      avgFunction, firstFunction, lastFunction, maxFunction,
      minFunction, sumFunction]
 
 -- non aggregates
+asIntFunction :: SQLFunction
+asIntFunction = SQLFunction {
+    functionName        = "AS_INT",
+    minArgCount         = 1,
+    argCountIsFixed     = True,
+    applyFunction       = IntExpression . coerceInt . head . checkArgCount asIntFunction,
+    functionGrammar     = normalGrammar asIntFunction,
+    functionDescription = "converts the argument to an integer " ++
+                          "(failure to convert will cause the program " ++
+                          "to halt with an error message)"}
+
+asRealFunction :: SQLFunction
+asRealFunction = SQLFunction {
+    functionName        = "AS_REAL",
+    minArgCount         = 1,
+    argCountIsFixed     = True,
+    applyFunction       = RealExpression . coerceReal . head . checkArgCount asRealFunction,
+    functionGrammar     = normalGrammar asRealFunction,
+    functionDescription = "converts the argument to an real number " ++
+                          "(failure to convert will cause the program " ++
+                          "to halt with an error message)"}
+
 absFunction :: SQLFunction
 absFunction = SQLFunction {
     functionName        = "ABS",
