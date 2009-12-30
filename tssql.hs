@@ -9,6 +9,7 @@
 -- Main entry point for the TxtSushi SQL command line
 --
 -----------------------------------------------------------------------------
+import Data.Char
 import Data.List
 import Data.Version (Version(..))
 import qualified Data.Map as M
@@ -23,6 +24,7 @@ import Database.TxtSushi.FlatFile
 import Database.TxtSushi.IOUtil
 import Database.TxtSushi.ParseUtil
 import Database.TxtSushi.SQLExecution
+import Database.TxtSushi.SQLFunctionDefinitions
 import Database.TxtSushi.SQLParser
 
 import Paths_txt_sushi
@@ -33,7 +35,7 @@ helpOption = OptionDescription {
     optionFlag              = "-help",
     argumentNames           = ["function_or_keyword"],
     minArgumentCount        = 0,
-    argumentCountIsFixed    = True}
+    argumentCountIsFixed    = False}
 
 externalSortOption :: OptionDescription
 externalSortOption = OptionDescription {
@@ -57,7 +59,7 @@ allOpts = [helpOption, externalSortOption, tableDefOption]
 sqlCmdLine :: CommandLineDescription
 sqlCmdLine = CommandLineDescription {
     options                     = allOpts,
-    minTailArgumentCount        = 1,
+    minTailArgumentCount        = 0,
     tailArgumentNames           = ["SQL_select_statement"],
     tailArgumentCountIsFixed    = True}
 
@@ -98,46 +100,64 @@ argsToSortConfig :: M.Map OptionDescription a -> SortConfiguration
 argsToSortConfig argMap =
     if M.member externalSortOption argMap then UseExternalSort else UseInMemorySort
 
+-- | the help map is a mapping from keyword/function name to a string pair
+--   where fst is the grammar and snd is the description
+helpMap :: M.Map String (String, String)
+helpMap = M.fromList allFuncHelp
+    where
+        allFuncHelp =
+            map funcToHelp $ normalSyntaxFunctions ++ concat infixFunctions ++ specialFunctions
+        funcToHelp sqlFunc =
+            (map toUpper . functionName $ sqlFunc, (functionGrammar sqlFunc, functionDescription sqlFunc))
+
+printTermHelp :: String -> IO ()
+printTermHelp term = case M.lookup (map toUpper term) helpMap of
+    Just (grammar, description) ->
+        putStrLn grammar >> putStr "\t" >> putStrLn description
+    Nothing ->
+        putStrLn $ "\"" ++ term ++ "\" is not a known keyword or function"
+
 main :: IO ()
 main = do
     args <- getArgs
     progName <- getProgName
     
     let (argMap, argTail) = extractCommandLineArguments sqlCmdLine args
-        showHelp = M.member helpOption argMap || length argTail /= 1
         parseOutcome = parse (withTrailing eof parseSelectStatement) "" (head argTail)
     
-    if showHelp then printUsage progName else
-        case parseOutcome of
-            Left  err        -> print err
-            Right selectStmt ->
-                let
-                    -- create a table file map from the user args
-                    tableArgs = M.findWithDefault [] tableDefOption argMap
-                    tableArgMap = tableArgsToMap tableArgs
-                    
-                    -- get a default table to file map from the select statement
-                    selectTblNames = allMaybeTableNames (maybeFromTable selectStmt)
-                    defaultTblMap = M.fromList (zip selectTblNames selectTblNames)
-                    
-                    -- join the two with arg values taking precidence over
-                    -- the default values
-                    finalTblFileMap = tableArgMap `M.union` defaultTblMap
-                in
-                    -- turn the files into strings
-                    if validateTableNames (M.keys tableArgMap) selectTblNames
-                        then do
-                            let contentsMap = M.map getContentsFromFileOrStdin finalTblFileMap
-                            
-                            unwrappedContents <- unwrapMapList $ M.toList contentsMap
-                            
-                            let unwrappedContentsMap = M.fromList unwrappedContents
-                                textTableMap = M.map (parseTable csvFormat) unwrappedContentsMap
-                                dbTableMap = M.mapWithKey textTableToDatabaseTable textTableMap
-                                sortCfg = argsToSortConfig argMap
-                                selectedDbTable = select sortCfg selectStmt dbTableMap
-                                selectedTxtTable = databaseTableToTextTable selectedDbTable
-                            
-                            putStr $ formatTable csvFormat selectedTxtTable
-                        else
-                            exitFailure
+    case M.lookup helpOption argMap of
+        Just terms -> printUsage progName >> mapM_ printTermHelp (concat terms)
+        Nothing ->
+            if length argTail /= 1 then printUsage progName else case parseOutcome of
+                Left  err        -> print err
+                Right selectStmt ->
+                    let
+                        -- create a table file map from the user args
+                        tableArgs = M.findWithDefault [] tableDefOption argMap
+                        tableArgMap = tableArgsToMap tableArgs
+                        
+                        -- get a default table to file map from the select statement
+                        selectTblNames = allMaybeTableNames (maybeFromTable selectStmt)
+                        defaultTblMap = M.fromList (zip selectTblNames selectTblNames)
+                        
+                        -- join the two with arg values taking precidence over
+                        -- the default values
+                        finalTblFileMap = tableArgMap `M.union` defaultTblMap
+                    in
+                        -- turn the files into strings
+                        if validateTableNames (M.keys tableArgMap) selectTblNames
+                            then do
+                                let contentsMap = M.map getContentsFromFileOrStdin finalTblFileMap
+                                
+                                unwrappedContents <- unwrapMapList $ M.toList contentsMap
+                                
+                                let unwrappedContentsMap = M.fromList unwrappedContents
+                                    textTableMap = M.map (parseTable csvFormat) unwrappedContentsMap
+                                    dbTableMap = M.mapWithKey textTableToDatabaseTable textTableMap
+                                    sortCfg = argsToSortConfig argMap
+                                    selectedDbTable = select sortCfg selectStmt dbTableMap
+                                    selectedTxtTable = databaseTableToTextTable selectedDbTable
+                                
+                                putStr $ formatTable csvFormat selectedTxtTable
+                            else
+                                exitFailure
