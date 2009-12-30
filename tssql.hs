@@ -113,7 +113,7 @@ helpMap = M.fromList allFuncHelp
 printTermHelp :: String -> IO ()
 printTermHelp term = case M.lookup (map toUpper term) helpMap of
     Just (grammar, description) ->
-        putStrLn grammar >> putStr "\t" >> putStrLn description
+        putStrLn grammar >> putChar '\t' >> putStrLn description
     Nothing ->
         putStrLn $ "\"" ++ term ++ "\" is not a known keyword or function"
 
