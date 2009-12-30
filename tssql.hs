@@ -110,6 +110,10 @@ helpMap = M.fromList allFuncHelp
         funcToHelp sqlFunc =
             (map toUpper . functionName $ sqlFunc, (functionGrammar sqlFunc, functionDescription sqlFunc))
 
+printHelpTerms :: IO ()
+printHelpTerms = putStrLn $ "Help Terms: " ++ intercalate ", " helpTerms
+    where helpTerms = sort . M.keys $ helpMap
+
 printTermHelp :: String -> IO ()
 printTermHelp term = case M.lookup (map toUpper term) helpMap of
     Just (grammar, description) ->
@@ -126,9 +130,11 @@ main = do
         parseOutcome = parse (withTrailing eof parseSelectStatement) "" (head argTail)
     
     case M.lookup helpOption argMap of
-        Just terms -> printUsage progName >> mapM_ printTermHelp (concat terms)
+        Just terms -> case concat terms of
+            []          -> printUsage progName >> printHelpTerms
+            concatTerms -> printUsage progName >> mapM_ printTermHelp concatTerms
         Nothing ->
-            if length argTail /= 1 then printUsage progName else case parseOutcome of
+            if length argTail /= 1 then printUsage progName >> printHelpTerms else case parseOutcome of
                 Left  err        -> print err
                 Right selectStmt ->
                     let
