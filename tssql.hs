@@ -33,7 +33,7 @@ helpOption :: OptionDescription
 helpOption = OptionDescription {
     isRequired              = False,
     optionFlag              = "-help",
-    argumentNames           = ["function_or_keyword"],
+    argumentNames           = ["function_name"],
     minArgumentCount        = 0,
     argumentCountIsFixed    = False}
 
@@ -100,7 +100,7 @@ argsToSortConfig :: M.Map OptionDescription a -> SortConfiguration
 argsToSortConfig argMap =
     if M.member externalSortOption argMap then UseExternalSort else UseInMemorySort
 
--- | the help map is a mapping from keyword/function name to a string pair
+-- | the help map is a mapping from function name to a string pair
 --   where fst is the grammar and snd is the description
 helpMap :: M.Map String (String, String)
 helpMap = M.fromList allFuncHelp
@@ -119,7 +119,7 @@ printTermHelp term = case M.lookup (map toUpper term) helpMap of
     Just (grammar, description) ->
         putStrLn grammar >> putChar '\t' >> putStrLn description
     Nothing ->
-        putStrLn $ "\"" ++ term ++ "\" is not a known keyword or function"
+        putStrLn $ "\"" ++ term ++ "\" is not a known function"
 
 main :: IO ()
 main = do
