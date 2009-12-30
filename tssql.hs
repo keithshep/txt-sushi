@@ -111,7 +111,7 @@ helpMap = M.fromList allFuncHelp
             (map toUpper . functionName $ sqlFunc, (functionGrammar sqlFunc, functionDescription sqlFunc))
 
 printHelpTerms :: IO ()
-printHelpTerms = putStrLn $ "Help Terms: " ++ intercalate ", " helpTerms
+printHelpTerms = putStrLn $ "Functions (can be used with -help option): " ++ intercalate ", " helpTerms
     where helpTerms = sort . M.keys $ helpMap
 
 printTermHelp :: String -> IO ()
