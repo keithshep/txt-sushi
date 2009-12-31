@@ -362,8 +362,10 @@ substringFromFunction = SQLFunction {
     minArgCount         = 2,
     argCountIsFixed     = True,
     applyFunction       = substringFrom . checkArgCount substringFromFunction,
-    functionGrammar     = "SUBSTRING(string_expression FROM start_index)",
-    functionDescription = "returns the substring going from start_index using 1-based indexing to the end string_expression"}
+    functionGrammar     = "SUBSTRING(string_expression FROM start_index [FOR length_expression])",
+    functionDescription = "returns substring of string_expression going from " ++
+                          "start_index using 1-based indexing for a length of length_expression " ++
+                          " or to the end of string_expression if the FOR part is omitted"}
     where
         substringFrom [strExpr, fromExpr] = StringExpression $
             drop (coerceInt fromExpr - 1) (coerceString strExpr)
@@ -375,9 +377,10 @@ substringFromToFunction = SQLFunction {
     minArgCount         = 3,
     argCountIsFixed     = True,
     applyFunction       = substringFromTo . checkArgCount substringFromToFunction,
-    functionGrammar     = "SUBSTRING(string_expression FROM start_expression FOR length_expression)",
+    functionGrammar     = "SUBSTRING(string_expression FROM start_index [FOR length_expression])",
     functionDescription = "returns substring of string_expression going from " ++
-                          "start_index using 1-based indexing for a length of length_expression"}
+                          "start_index using 1-based indexing for a length of length_expression " ++
+                          " or to the end of string_expression if the FOR part is omitted"}
     where
         substringFromTo [strExpr, fromExpr, toExpr] = StringExpression $
             take (coerceInt toExpr) (drop (coerceInt fromExpr - 1) (coerceString strExpr))
