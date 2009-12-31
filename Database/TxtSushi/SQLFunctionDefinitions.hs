@@ -26,6 +26,7 @@ module Database.TxtSushi.SQLFunctionDefinitions (
 
 import Data.Char
 import Data.List
+import Data.Maybe
 import Text.Regex.Posix
 
 import Database.TxtSushi.EvaluatedExpression
@@ -35,12 +36,22 @@ import Database.TxtSushi.SQLExpression
 normalSyntaxFunctions :: [SQLFunction]
 normalSyntaxFunctions =
     [absFunction, upperFunction, lowerFunction, trimFunction, ifThenElseFunction,
-     asIntFunction, asRealFunction,
+     asIntFunction, asRealFunction, isNumericFunction,
      -- all aggregates except count which accepts a (*)
      avgFunction, firstFunction, lastFunction, maxFunction,
      minFunction, sumFunction]
 
 -- non aggregates
+isNumericFunction :: SQLFunction
+isNumericFunction = SQLFunction {
+    functionName        = "IS_NUMERIC",
+    minArgCount         = 1,
+    argCountIsFixed     = True,
+    applyFunction       = BoolExpression. isJust . maybeCoerceReal . head . checkArgCount isNumericFunction,
+    functionGrammar     = normalGrammar isNumericFunction,
+    functionDescription = "determines if the argument can be coerced to a numeric " ++
+                          "type without error (Eg: using AS_REAL, AS_INT, +, etc...)"}
+
 asIntFunction :: SQLFunction
 asIntFunction = SQLFunction {
     functionName        = "AS_INT",
