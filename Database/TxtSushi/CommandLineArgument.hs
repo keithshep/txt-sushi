@@ -87,8 +87,8 @@ formatOptions [] = ""
 formatOptions (headOption:optionsTail) =
     let argSubstring = argumentSubstring headOption
         spacedArgSubstring = if null argSubstring then "" else space ++ argSubstring
-        requiredOptionString = (optionFlag headOption) ++ spacedArgSubstring
-        formattedOptionsTail = if null optionsTail then "" else space ++ (formatOptions optionsTail)
+        requiredOptionString = optionFlag headOption ++ spacedArgSubstring
+        formattedOptionsTail = if null optionsTail then "" else space ++ formatOptions optionsTail
     in
         if isRequired headOption then
             requiredOptionString ++ formattedOptionsTail
@@ -104,14 +104,14 @@ argumentSubstring option =
             else intercalate space (take minArgs (cycle (argumentNames option)))
         else
             -- take care of the bounded case
-            (intercalate space (take minArgs (cycle (argumentNames option)))) ++ space ++ etc
+            (intercalate space . take minArgs . cycle $ argumentNames option) ++ space ++ etc
 
 extractCommandLineArguments ::
     CommandLineDescription ->
     [String] ->
     (Map.Map OptionDescription [[String]], [String])
 extractCommandLineArguments cmdLineDesc argValues =
-    let unreservedArgCount = (length argValues) - (minTailArgumentCount cmdLineDesc)
+    let unreservedArgCount = length argValues - minTailArgumentCount cmdLineDesc
         (unreservedArgs, reservedArgs) = splitAt unreservedArgCount argValues
         theOptions = options cmdLineDesc
         (optionMap, remainingArgs) = extractOptions theOptions unreservedArgs
@@ -170,7 +170,7 @@ argumentExtent optionDescription allOptDescs afterOptArgs =
                 else nextArgIndex
     where
         missingParameters =
-            error $ "missing parameter(s) for " ++ (optionFlag optionDescription)
+            error $ "missing parameter(s) for " ++ optionFlag optionDescription
 
 addOptionArgsToMap ::
     Map.Map OptionDescription [[String]] ->

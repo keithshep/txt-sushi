@@ -17,7 +17,7 @@ main = do
                 
                 -- we only need the 1st row's column count to name the columns
                 (headRow : _) ->
-                    let colNames = map ("col" ++) (map show [1 .. length headRow])
+                    let colNames = map (("col" ++) . show) [1 .. length headRow]
                         namedTable = formatTable csvFormat [colNames] ++ contents
                     in
                         putStr namedTable

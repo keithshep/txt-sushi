@@ -79,7 +79,7 @@ tableArgsToMap (currTableArgs:tailTableArgs) =
         [fileName, tblName] ->
             M.insert fileName tblName (tableArgsToMap tailTableArgs)
         _ ->
-            error $ "the \"" ++ (optionFlag tableDefOption) ++
+            error $ "the \"" ++ optionFlag tableDefOption ++
                     "\" option should have exactly two arguments"
 
 unwrapMapList :: (Monad m) => [(t, m t1)] -> m [(t, t1)]

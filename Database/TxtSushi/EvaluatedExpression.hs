@@ -28,6 +28,7 @@ module Database.TxtSushi.EvaluatedExpression (
 
 import Data.Char
 import Data.List
+import Data.Ord
 
 import Database.TxtSushi.ParseUtil
 
@@ -72,7 +73,7 @@ boolCompare expr1 expr2 =
         myCompare _ _ = expr1 `stringCompare` expr2
 
 stringCompare :: EvaluatedExpression -> EvaluatedExpression -> Ordering
-stringCompare expr1 expr2 = coerceString expr1 `compare` coerceString expr2
+stringCompare = comparing coerceString
 
 -- base equality off of the Ord definition. pretty simple huh?
 instance Eq EvaluatedExpression where
@@ -94,7 +95,7 @@ coerceInt :: EvaluatedExpression -> Int
 coerceInt evalExpr = case maybeCoerceInt evalExpr of
     Just int -> int
     Nothing ->
-        error $ "could not convert \"" ++ (coerceString evalExpr) ++
+        error $ "could not convert \"" ++ coerceString evalExpr ++
                 "\" to an integer value"
 
 maybeCoerceReal :: EvaluatedExpression -> Maybe Double
@@ -107,7 +108,7 @@ coerceReal :: EvaluatedExpression -> Double
 coerceReal evalExpr = case maybeCoerceReal evalExpr of
     Just real -> real
     Nothing ->
-        error $ "could not convert \"" ++ (coerceString evalExpr) ++
+        error $ "could not convert \"" ++ coerceString evalExpr ++
                 "\" to a numeric value"
 
 maybeReadBool :: String -> Maybe Bool
@@ -131,5 +132,5 @@ coerceBool :: EvaluatedExpression -> Bool
 coerceBool evalExpr = case maybeCoerceBool evalExpr of
     Just bool -> bool
     Nothing ->
-        error $ "could not convert \"" ++ (coerceString evalExpr) ++
+        error $ "could not convert \"" ++ coerceString evalExpr ++
                 "\" to a boolean value"

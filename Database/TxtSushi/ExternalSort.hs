@@ -100,7 +100,7 @@ externalMergeAllBy :: Binary b => Int -> (b -> b -> Ordering) -> [String] -> IO 
 externalMergeAllBy _ _ [] = return []
 -- TODO do i need to write singleton lists to file in order to keep the max open file promise??
 externalMergeAllBy _ _ [singletonFile] =
-    readThenDelBinFile singletonFile >>= return . decodeAll
+    fmap decodeAll (readThenDelBinFile singletonFile)
 externalMergeAllBy maxOpenFiles cmp files = do
     partiallyMergedFiles <- externalMergePass maxOpenFiles cmp files
     externalMergeAllBy maxOpenFiles cmp partiallyMergedFiles
@@ -132,7 +132,7 @@ splitAfterQuota quotaInBytes (binaryHead:binaryTail) =
 
 -- | lazily reads then deletes the given files
 readThenDelBinFiles :: [String] -> IO [BS.ByteString]
-readThenDelBinFiles = sequence . map readThenDelBinFile
+readThenDelBinFiles = mapM readThenDelBinFile
 
 -- | lazily reads then deletes the given file after the last byte is read
 readThenDelBinFile :: String -> IO BS.ByteString

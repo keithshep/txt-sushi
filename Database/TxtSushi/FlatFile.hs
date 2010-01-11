@@ -14,6 +14,7 @@ module Database.TxtSushi.FlatFile (
 
 import Data.Function
 import Data.List
+import Data.Ord
 
 {- |
 'Format' allows you to specify different flat-file formats so that you
@@ -37,7 +38,7 @@ tabDelimitedFormat = Format "\"" "\t" ["\n", "\r", "\n\r", "\r\n"]
 get a quote escape sequence for the given 'Format'
 -}
 doubleQuote :: Format -> String
-doubleQuote format = (quote format) ++ (quote format)
+doubleQuote format = quote format ++ quote format
 
 formatTableWithWidths :: String -> [Int] -> [[String]] -> String
 formatTableWithWidths _ _ [] = []
@@ -45,14 +46,14 @@ formatTableWithWidths boundaryString widths (row:tableTail) =
     let
         (initCells, [lastCell]) = splitAt (length row - 1) row
     in
-        (concat $ zipWith ensureWidth widths initCells) ++ lastCell ++
-        "\n" ++ (formatTableWithWidths boundaryString widths tableTail)
+        concat (zipWith ensureWidth widths initCells) ++ lastCell ++
+        "\n" ++ formatTableWithWidths boundaryString widths tableTail
     where
         ensureWidth width field =
             let lengthField = length field
             in
                 if width > lengthField then
-                    field ++ (replicate (width - lengthField) ' ') ++ boundaryString
+                    field ++ replicate (width - lengthField) ' ' ++ boundaryString
                 else
                     field ++ boundaryString
 
@@ -83,7 +84,7 @@ maxRowFieldWidths row prevMaxValues =
     zipWithD max (map length row) prevMaxValues
 
 zipWithD :: (a -> a -> a) -> [a] -> [a] -> [a]
-zipWithD f (x:xt) (y:yt) = (f x y):(zipWithD f xt yt)
+zipWithD f (x:xt) (y:yt) = f x y : zipWithD f xt yt
 zipWithD _ [] ys = ys
 zipWithD _ xs [] = xs
 
@@ -94,7 +95,7 @@ the given 'Format'
 formatTable :: Format -> [[String]] -> String
 formatTable _ [] = ""
 formatTable format (headRow:tableTail) =
-    (formatRow format headRow) ++ (defaultRowDelimiter format) ++ (formatTable format tableTail)
+    formatRow format headRow ++ defaultRowDelimiter format ++ formatTable format tableTail
 
 {- |
 Format the row into a flat file sub-string using the given 'Format'
@@ -109,21 +110,24 @@ formatRow format (headField:rowTail) =
         if null rowTail then
             escapedField
         else
-            escapedField ++ (fieldDelimiter format) ++ (formatRow format rowTail)
+            escapedField ++ fieldDelimiter format ++ formatRow format rowTail
 
 {- |
 encode the given text field if it contains any special formatting characters
 -}
 encodeField :: Format -> String -> String
-encodeField format field =
-    if (quote format) `isInfixOf` field then
+encodeField format field
+    | quoteInField =
         let escapedField = replaceAll field (quote format) (doubleQuote format)
-        in  (quote format) ++ escapedField ++ (quote format)
-    else if any (`isInfixOf` field) (rowDelimiters format) ||
-            (fieldDelimiter format) `isInfixOf` field then
-        (quote format) ++ field ++ (quote format)
-    else
-        field
+        in quote format ++ escapedField ++ quote format
+    | delimiterInField =
+        quote format ++ field ++ quote format
+    | otherwise = field
+    where
+        quoteInField = quote format `isInfixOf` field
+        delimiterInField =
+            any (`isInfixOf` field) (rowDelimiters format) ||
+            (fieldDelimiter format `isInfixOf` field)
 
 {-
 replace all instances of 'targetSublist' found in 'list' with
@@ -134,9 +138,9 @@ replaceAll [] _ _ = []
 replaceAll list@(listHead:listTail) targetSublist replacementList =
     if targetSublist `isPrefixOf` list then
         let remainingList = drop (length targetSublist) list
-        in  replacementList ++ (replaceAll remainingList targetSublist replacementList)
+        in  replacementList ++ replaceAll remainingList targetSublist replacementList
     else
-        listHead:(replaceAll listTail targetSublist replacementList)
+        listHead : replaceAll listTail targetSublist replacementList
 
 {- |
 Parse the given text using the given flat file 'Format'. The result
@@ -151,7 +155,7 @@ parseTable format text = go text
         -- char newlines. The code in parseUnquotedField works on this
         -- assumption
         newFormat = format {
-            rowDelimiters = sortBy (compare `on` negate . length) (rowDelimiters format)}
+            rowDelimiters = sortBy (comparing (negate . length)) (rowDelimiters format)}
         
         go "" = []
         go txt =
@@ -179,7 +183,7 @@ parseField :: Format -> String -> (String, Bool, String)
 parseField _ [] = ("", False, "")
 parseField format text =
     -- check if this field is quoted or not
-    if (quote format) `isPrefixOf` text then
+    if quote format `isPrefixOf` text then
         let tailOfQuote = drop (length (quote format)) text
         in  parseQuotedField format tailOfQuote
     else
@@ -188,26 +192,26 @@ parseField format text =
 -- parse a quoted field giving (field, moreFieldsInRow, remainingText)
 parseQuotedField :: Format -> String -> (String, Bool, String)
 parseQuotedField _ [] = ("", False, "")
-parseQuotedField format text@(textHead:textTail) =
+parseQuotedField format text@(textHead : textTail)
     -- a double quote is an escaped quote, so add a quote to the field
-    if (doubleQuote format) `isPrefixOf` text then
+    | doubleQuote format `isPrefixOf` text =
         let tailOfDoubleQuote = drop (length (doubleQuote format)) text
             (fieldTail, moreFieldsInRow, remainingText) = parseQuotedField format tailOfDoubleQuote
-        in  ((quote format) ++ fieldTail, moreFieldsInRow, remainingText)
+        in  (quote format ++ fieldTail, moreFieldsInRow, remainingText)
     
     -- a single quote is the end of the field, we can use parseUnquotedField to
     -- chew up any chars between the ending quote and the next delimiter (there
     -- really shouldn't be any if the text is formatted well, but you never
     -- know)
-    else if (quote format) `isPrefixOf` text then
+    | quote format `isPrefixOf` text =
         let tailOfQuote = drop (length (quote format)) text
             (_, moreFieldsInRow, remainingText) = parseUnquotedField format tailOfQuote
         in  ("", moreFieldsInRow, remainingText)
     
     -- just another character... toss it in the field and keep going
-    else
+    | otherwise =
         let (fieldTail, moreFieldsInRow, remainingText) = parseQuotedField format textTail
-        in  (textHead:fieldTail, moreFieldsInRow, remainingText)
+        in  (textHead : fieldTail, moreFieldsInRow, remainingText)
 
 -- parse an unquoted field giving (field, moreFieldsInRow, remainingText)
 parseUnquotedField :: Format -> String -> (String, Bool, String)
@@ -215,7 +219,7 @@ parseUnquotedField _ [] = ("", False, "")
 parseUnquotedField format text@(textHead:textTail) =
     -- if we hit a field delimiter: return an empty string and let caller know
     -- there are more fields in this row
-    if (fieldDelimiter format) `isPrefixOf` text then
+    if fieldDelimiter format `isPrefixOf` text then
         let tailOfDelimiter = drop (length (fieldDelimiter format)) text
         in  ([], True, tailOfDelimiter)
     

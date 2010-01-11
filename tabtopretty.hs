@@ -1,3 +1,4 @@
+import Control.Monad
 import System.Directory
 import System.Environment
 import System.IO
@@ -28,7 +29,7 @@ main = do
             putStr prettyTableText
             hClose handle1
             hClose handle2
-            if useStdio then removeFile file else return ()
-            
+            when useStdio (removeFile file)
+        
         -- we were expecting a single file name arg
         _ -> printSingleFileUsage
