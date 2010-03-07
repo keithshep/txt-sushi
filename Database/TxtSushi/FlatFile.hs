@@ -1,3 +1,16 @@
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  Database.TxtSushi.FlatFile
+-- Copyright   :  (c) Keith Sheppard 2009-2010
+-- License     :  BSD3
+-- Maintainer  :  keithshep@gmail.com
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- Functions for reading/writing flat files
+--
+-----------------------------------------------------------------------------
+
 {- |
 The 'FlatFile' module is for reading misc. 'FlatFile' formats like CSV or
 tab delimited

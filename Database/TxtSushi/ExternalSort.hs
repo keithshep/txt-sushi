@@ -1,3 +1,15 @@
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  Database.TxtSushi.ExternalSort
+-- Copyright   :  (c) Keith Sheppard 2009-2010
+-- License     :  BSD3
+-- Maintainer  :  keithshep@gmail.com
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- For sorting huge lists on disk
+--
+-----------------------------------------------------------------------------
 module Database.TxtSushi.ExternalSort (
     externalSort,
     externalSortBy,

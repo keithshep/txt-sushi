@@ -1,3 +1,16 @@
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  Database.TxtSushi.Relational
+-- Copyright   :  (c) Keith Sheppard 2009-2010
+-- License     :  BSD3
+-- Maintainer  :  keithshep@gmail.com
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- Some functions for joining lists
+--
+-----------------------------------------------------------------------------
+
 {- |
 Simple table transformations
 -}

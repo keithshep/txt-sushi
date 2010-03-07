@@ -1,3 +1,15 @@
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  Database.TxtSushi.IOUtil
+-- Copyright   :  (c) Keith Sheppard 2009-2010
+-- License     :  BSD3
+-- Maintainer  :  keithshep@gmail.com
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- A couple of util functions for txt-sushi
+--
+-----------------------------------------------------------------------------
 module Database.TxtSushi.IOUtil (
     bufferStdioToTempFile,
     getContentsFromFileOrStdin,

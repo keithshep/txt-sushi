@@ -1,3 +1,15 @@
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  csvtopretty
+-- Copyright   :  (c) Keith Sheppard 2009-2010
+-- License     :  BSD3
+-- Maintainer  :  keithshep@gmail.com
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- Converts CSV input into pretty-printed output
+--
+-----------------------------------------------------------------------------
 import Control.Monad
 import System.Directory
 import System.Environment

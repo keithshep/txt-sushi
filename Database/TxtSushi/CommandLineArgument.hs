@@ -1,3 +1,16 @@
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  Database.TxtSushi.CommandLineArgument
+-- Copyright   :  (c) Keith Sheppard 2009-2010
+-- License     :  BSD3
+-- Maintainer  :  keithshep@gmail.com
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- Some functions for parsing command line args (TODO: evaluate what you're
+-- doing here against the arg parsing libraries on hackage)
+--
+-----------------------------------------------------------------------------
 module Database.TxtSushi.CommandLineArgument (
     extractCommandLineArguments,
     formatCommandLine,

@@ -1,3 +1,15 @@
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  tabtocsv
+-- Copyright   :  (c) Keith Sheppard 2009-2010
+-- License     :  BSD3
+-- Maintainer  :  keithshep@gmail.com
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- Converts a tab-delimited file to a CSV file
+--
+-----------------------------------------------------------------------------
 import System.Environment
 import System.IO
 

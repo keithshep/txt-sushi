@@ -1,3 +1,15 @@
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  namecolumns
+-- Copyright   :  (c) Keith Sheppard 2009-2010
+-- License     :  BSD3
+-- Maintainer  :  keithshep@gmail.com
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- Adds header names like: col1, col2, col3 ... to a CSV file
+--
+-----------------------------------------------------------------------------
 import System.Environment
 import System.IO
 

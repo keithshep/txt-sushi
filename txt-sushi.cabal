@@ -1,5 +1,5 @@
 Name:                txt-sushi
-Version:             0.5.0
+Version:             0.5.1
 Synopsis:            The SQL link in your *NIX chain
 Description:
     TxtSushi is a collection of command line utilities for processing
@@ -9,7 +9,7 @@ Description:
     TxtSushi simplifies common tasks like filtering, joining and transformation
     that would take more effort to accomplish with a general purpose text
     processing language.
-License:             GPL
+License:             BSD3
 License-File:        COPYING
 Author:              Keith Sheppard
 Maintainer:          keithshep@gmail.com
@@ -26,7 +26,7 @@ Source-Repository head
 Source-Repository this
   type:     darcs
   location: http://patch-tag.com/r/keithshep/txt-sushi/pullrepo
-  tag:      0.5.0
+  tag:      0.5.1
 
 Executable tssql
   Main-Is:          tssql.hs

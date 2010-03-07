@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
--- Copyright   :  (c) Keith Sheppard 2009
--- License     :  GPL3 or greater
+-- Copyright   :  (c) Keith Sheppard 2009-2010
+-- License     :  BSD3
 -- Maintainer  :  keithshep@gmail.com
 -- Stability   :  experimental
 -- Portability :  portable
