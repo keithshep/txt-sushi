@@ -1,5 +1,5 @@
 Name:                txt-sushi
-Version:             0.5.1
+Version:             0.6.0
 Synopsis:            The SQL link in your *NIX chain
 Description:
     TxtSushi is a collection of command line utilities for processing
@@ -26,7 +26,7 @@ Source-Repository head
 Source-Repository this
   type:     darcs
   location: http://patch-tag.com/r/keithshep/txt-sushi/pullrepo
-  tag:      0.5.1
+  tag:      0.6.0
 
 Executable tssql
   Main-Is:          tssql.hs
@@ -61,6 +61,10 @@ Executable transposecsv
 
 Executable transposetab
   Main-Is:          transposetab.hs
+  GHC-Options:      -O2 -Wall
+
+Executable csvzip
+  Main-Is:          csvzip.hs
   GHC-Options:      -O2 -Wall
 
 Library
