@@ -11,10 +11,6 @@
 --
 -----------------------------------------------------------------------------
 
-{- |
-The 'FlatFile' module is for reading misc. 'FlatFile' formats like CSV or
-tab delimited
--}
 module Database.TxtSushi.FlatFile (
     formatTableWithWidths,
     maxTableColumnWidths,

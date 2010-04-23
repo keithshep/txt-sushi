@@ -11,9 +11,6 @@
 --
 -----------------------------------------------------------------------------
 
-{- |
-Simple table transformations
--}
 module Database.TxtSushi.Relational (
     joinTables,
     crossJoinTables,
