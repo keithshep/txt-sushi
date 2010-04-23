@@ -1,4 +1,4 @@
-#!/usr/bin/runhaskell
+#!/usr/bin/env runhaskell
 
 This is a little script that generates a CSV table containing all random
 numbers. It takes two arguments: row count and column count
