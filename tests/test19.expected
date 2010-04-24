@@ -1,0 +1,7 @@
+EmployeeID,LastName,Country,DepartmentID,ID,CITY,STATE,LAT_N,LONG_W,ID,CITY,STATE,LAT_N,LONG_W
+123,Rafferty,Australia,31,13,Phoenix,AZ,33,112,ID-13,Phoenix,AZ,33,112
+124,Jones,Australia,33,44,Denver,CO,40,105,ID-44,Denver,CO,40,105
+145,Steinberg,Australia,33,66,Caribou,ME,47,68,ID-66,Caribou,ME,47,68
+201,Robinson,United States,34,,,,,,,,,,
+305,Smith,United Kingdom,34,,,,,,,,,,
+306,Jasper,United Kingdom,,,,,,,,,,,

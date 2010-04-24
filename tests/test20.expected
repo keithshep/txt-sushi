@@ -1,0 +1,9 @@
+EmployeeID,LastName,Country,DepartmentID,maybe_num
+123,Rafferty,Australia,31,2
+124,Jones,Australia,33,2.0
+145,Steinberg,Australia,33, 3 
+201,Robinson,United States,34, 3.0e-10 
+305,Smith,United Kingdom,34,hi i'm not a number dude.. and neither is the next one
+306,Jasper,United Kingdom,,3 4
+,,,,but the next one is
+,,,,5.0001
