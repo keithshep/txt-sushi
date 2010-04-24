@@ -14,7 +14,7 @@
 --
 -----------------------------------------------------------------------------
 import Data.List(intercalate)
-import Data.Version (Version(..))
+import Data.Version (Version(versionBranch))
 import System.Environment (getArgs, getProgName)
 
 import Database.TxtSushi.FlatFile (csvFormat, formatTable, parseTable)
@@ -22,7 +22,7 @@ import Database.TxtSushi.IOUtil (getContentsFromFileOrStdin)
 
 import Paths_txt_sushi(version)
 
-main :: IO()
+main :: IO ()
 main = do
     fileNames <- getArgs
     
