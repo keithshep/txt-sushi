@@ -20,13 +20,11 @@ module Database.TxtSushi.SQLExecution (
 
 import Control.Applicative
 import Data.Binary
-import Data.Char
 import Data.Function
 import Data.List
 import qualified Data.Map as M
 
 import Database.TxtSushi.SQLExpression
-import Database.TxtSushi.SQLFunctionDefinitions
 import Database.TxtSushi.EvaluatedExpression
 import Database.TxtSushi.ExternalSort
 import Database.TxtSushi.Relational

@@ -27,7 +27,6 @@ module Database.TxtSushi.EvaluatedExpression (
     coerceBool) where
 
 import Data.Char
-import Data.List
 import Data.Ord
 
 import Database.TxtSushi.ParseUtil

@@ -16,7 +16,6 @@
 import Data.List(intercalate)
 import Data.Version (Version(..))
 import System.Environment (getArgs, getProgName)
-import System.IO (putStr)
 
 import Database.TxtSushi.FlatFile (csvFormat, formatTable, parseTable)
 import Database.TxtSushi.IOUtil (getContentsFromFileOrStdin)

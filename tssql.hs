@@ -15,7 +15,6 @@ import Data.Version (Version(..))
 import qualified Data.Map as M
 import System.Environment
 import System.Exit
-import System.IO
 
 import Text.ParserCombinators.Parsec
 

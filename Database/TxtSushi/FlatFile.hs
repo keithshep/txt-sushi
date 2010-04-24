@@ -21,7 +21,6 @@ module Database.TxtSushi.FlatFile (
     tabDelimitedFormat,
     doubleQuote) where
 
-import Data.Function
 import Data.List
 import Data.Ord
 

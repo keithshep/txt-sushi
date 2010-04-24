@@ -17,7 +17,6 @@ module Database.TxtSushi.ExternalSort (
     defaultByteQuota,
     defaultMaxOpenFiles) where
 
-import Control.Monad
 import Data.Binary
 import Data.Binary.Get
 import Data.Int

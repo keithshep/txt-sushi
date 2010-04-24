@@ -26,9 +26,6 @@ module Database.TxtSushi.SQLExpression (
     expressionToString,
     columnToString) where
 
-import Data.Char
-import Data.List
-
 import Database.TxtSushi.EvaluatedExpression
 
 --------------------------------------------------------------------------------

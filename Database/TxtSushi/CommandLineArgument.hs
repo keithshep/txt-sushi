@@ -27,7 +27,6 @@ module Database.TxtSushi.CommandLineArgument (
     argumentCountIsFixed) where
 
 import Data.List
-import Data.Map (Map)
 import qualified Data.Map as Map
 
 data CommandLineDescription = CommandLineDescription {
