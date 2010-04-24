@@ -40,7 +40,7 @@ parseInt = eatSpacesAfter . try . (withoutTrailing alphaNum) $ do
         anyParseTxt = signedParseTxt <|> unsignedParseTxt <?> "integer"
         unsignedParseTxt = many1 digit
         signedParseTxt = do
-            char '-'
+            _ <- char '-'
             unsignedDigitTxt <- unsignedParseTxt
             return $ '-' : unsignedDigitTxt
 
@@ -75,11 +75,11 @@ parseReal = eatSpacesAfter . try . (withoutTrailing alphaNum) $ do
         txtWithoutExponent = signedTxt <|> unsignedTxt <?> "real"
         unsignedTxt = do
             intTxt <- many1 digit
-            char '.'
+            _ <- char '.'
             fracTxt <- many1 digit
             return $ intTxt ++ "." ++ fracTxt
         signedTxt = do
-            char '-'
+            _ <- char '-'
             unsignedDigitTxt <- unsignedTxt
             return ('-':unsignedDigitTxt)
 
@@ -101,10 +101,10 @@ quotedText allowEmpty quoteChar = do
     let quote = char quoteChar
         manyFunc = if allowEmpty then many else many1
     
-    quote
+    _ <- quote
     textValue <- manyFunc $ (anyChar `genExcept` quote) <|>
                             try (escapedQuote quoteChar)
-    quote
+    _ <- quote
     spaces
     
     return textValue
@@ -178,7 +178,7 @@ sepByExactly itemCount itemParser sepParser =
         -- for lists greater than 1 we do need to care about the separator
         parseEach (headParser:parserTail) = do
             resultHead <- headParser
-            sepParser
+            _ <- sepParser
             resultTail <- parseEach parserTail
             
             return $ resultHead:resultTail

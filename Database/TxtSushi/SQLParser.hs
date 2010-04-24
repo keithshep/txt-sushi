@@ -129,11 +129,11 @@ parseRangeColumns :: GenParser Char st ColumnSelection
 parseRangeColumns = parseRangeInner
     where
         parseRangeInner = do
-            parseToken "FOR"
+            _ <- parseToken "FOR"
             bindingId <- parseColumnId
-            parseToken "IN"
+            _ <- parseToken "IN"
             colRange <- parseColRange
-            parseToken "YIELD"
+            _ <- parseToken "YIELD"
             expr <- parseExpression
             
             return $ ExpressionColumnRange bindingId colRange expr
@@ -141,7 +141,7 @@ parseRangeColumns = parseRangeInner
             where
                 parseColRange = brace $ do
                     maybeStartCol <- maybeParse parseColumnId
-                    parseToken ".."
+                    _ <- parseToken ".."
                     maybeEndCol <- maybeParse parseColumnId
                     
                     return $ ColumnRange maybeStartCol maybeEndCol
@@ -152,7 +152,7 @@ parseAllCols = parseToken "*" >> return AllColumns
 parseAllColsFromTbl :: GenParser Char st ColumnSelection
 parseAllColsFromTbl = do
     tableVal <- parseIdentifier
-    string "." >> spaces >> parseToken "*"
+    _ <- string "." >> spaces >> parseToken "*"
     
     return $ AllColumnsFrom tableVal
 
@@ -223,7 +223,7 @@ parseInnerJoinRemainder :: TableExpression -> GenParser Char a TableExpression
 parseInnerJoinRemainder leftTblExpr = do
     rightTblExpr <- parseTableExpression
     
-    parseToken "ON"
+    _ <- parseToken "ON"
     onPart <- parseExpression
     
     maybeAlias <- maybeParseAlias
@@ -335,12 +335,12 @@ parseInfixOp infixFunc =
 parseSubstringFunction :: GenParser Char st Expression
 parseSubstringFunction = do
     funcStr <- parseToken $ functionName substringFromFunction
-    eatSpacesAfter $ char '('
+    _ <- eatSpacesAfter $ char '('
     strExpr <- parseExpression
     fromStr <- parseToken "FROM"
     startExpr <- parseExpression
     maybeForStrAndLength <- preservingIfParseThen (parseToken "FOR") parseExpression
-    eatSpacesAfter $ char ')'
+    _ <- eatSpacesAfter $ char ')'
     
     let funcStrStart =
             funcStr ++ "(" ++ expressionToString strExpr ++ " " ++
@@ -373,7 +373,7 @@ parseNotFunction = do
 parseCountStar :: GenParser Char st Expression
 parseCountStar = do
     funcStr <- try (parseToken $ functionName countFunction)
-    parenthesize (parseToken "*")
+    _ <- parenthesize (parseToken "*")
     
     return $ FunctionExpression countFunction [IntConstantExpression 0 "*"] (funcStr ++ "(*)")
 
@@ -417,17 +417,17 @@ commaSeparator = eatSpacesAfter $ char ','
 -- | Wraps braces parsers around the given inner parser
 brace :: GenParser Char st a -> GenParser Char st a
 brace innerParser = do
-    eatSpacesAfter $ char '['
+    _ <- eatSpacesAfter $ char '['
     innerParseResults <- innerParser
-    eatSpacesAfter $ char ']'
+    _ <- eatSpacesAfter $ char ']'
     return innerParseResults
 
 -- | Wraps parentheses parsers around the given inner parser
 parenthesize :: GenParser Char st a -> GenParser Char st a
 parenthesize innerParser = do
-    eatSpacesAfter $ char '('
+    _ <- eatSpacesAfter $ char '('
     innerParseResults <- innerParser
-    eatSpacesAfter $ char ')'
+    _ <- eatSpacesAfter $ char ')'
     return innerParseResults
 
 parseReservedWord :: GenParser Char st String
