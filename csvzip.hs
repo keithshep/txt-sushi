@@ -29,7 +29,7 @@ main = do
     case fileNames of
         -- parse all CSV files giving us a list of tables, then zip and print them
         (_ : _ : _) -> do
-            tables <- sequence $ map getAndParseTable fileNames
+            tables <- mapM getAndParseTable fileNames
             putStr $ formatTable csvFormat (zipAllColumns tables)
         
         _ -> printUsage
