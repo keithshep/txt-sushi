@@ -50,6 +50,11 @@ data TableExpression =
         rightJoinTable :: TableExpression,
         onCondition :: Expression,
         maybeTableAlias :: Maybe String} |
+    OuterJoin {
+        leftJoinTable :: TableExpression,
+        rightJoinTable :: TableExpression,
+        onCondition :: Expression,
+        maybeTableAlias :: Maybe String} |
     CrossJoin {
         leftJoinTable :: TableExpression,
         rightJoinTable :: TableExpression,
@@ -67,6 +72,8 @@ allMaybeTableNames (Just tblExp) = allTableNames tblExp
 allTableNames :: TableExpression -> [String]
 allTableNames (TableIdentifier tblName _) = [tblName]
 allTableNames (InnerJoin lftTbl rtTbl _ _) =
+    (allTableNames lftTbl) ++ (allTableNames rtTbl)
+allTableNames (OuterJoin lftTbl rtTbl _ _) =
     (allTableNames lftTbl) ++ (allTableNames rtTbl)
 allTableNames (CrossJoin lftTbl rtTbl _) =
     (allTableNames lftTbl) ++ (allTableNames rtTbl)

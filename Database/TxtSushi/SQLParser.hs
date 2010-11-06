@@ -197,6 +197,14 @@ parseTableIdentifierOrJoin = do
     nextTblId <- parseTableIdentifier
     
     let
+        ifJoinParse = ifParseThenElse
+            -- if
+            outerJoinSep -- TODO commit to join
+            -- then
+            (parseOuterJoinRemainder nextTblId)
+            --else
+            ifCrossOrInnerJoinParse
+        
         ifCrossOrInnerJoinParse = ifParseThenElse
             -- if
             crossJoinSep -- TODO commit to join
@@ -213,9 +221,10 @@ parseTableIdentifierOrJoin = do
             -- else
             (return nextTblId)
         
-    ifCrossOrInnerJoinParse
+    ifJoinParse
     
     where
+        outerJoinSep = parseToken "OUTER" >> parseToken "JOIN"
         crossJoinSep = (commaSeparator >> return "") <|> (parseToken "CROSS" >> parseToken "JOIN")
         innerJoinSep = ((maybeParse $ parseToken "INNER") >> parseToken "JOIN")
 
@@ -229,6 +238,21 @@ parseInnerJoinRemainder leftTblExpr = do
     maybeAlias <- maybeParseAlias
     
     return InnerJoin {
+            leftJoinTable=leftTblExpr,
+            rightJoinTable=rightTblExpr,
+            onCondition=onPart,
+            maybeTableAlias=maybeAlias}
+
+parseOuterJoinRemainder :: TableExpression -> GenParser Char a TableExpression
+parseOuterJoinRemainder leftTblExpr = do
+    rightTblExpr <- parseTableExpression
+    
+    _ <- parseToken "ON"
+    onPart <- parseExpression
+    
+    maybeAlias <- maybeParseAlias
+    
+    return OuterJoin {
             leftJoinTable=leftTblExpr,
             rightJoinTable=rightTblExpr,
             onCondition=onPart,
@@ -441,8 +465,8 @@ reservedWords =
     map functionName normalSyntaxFunctions ++
     map functionName (concat infixFunctions) ++
     map functionName specialFunctions ++
-    ["BY","CROSS", "FROM", "FOR", "GROUP", "HAVING", "IN", "INNER", "JOIN", "ON",
-     "ORDER", "SELECT", "WHERE", "TRUE", "FALSE", "YIELD"]
+    ["BY", "CROSS", "FROM", "FOR", "GROUP", "HAVING", "IN", "INNER", "JOIN", "ON",
+     "ORDER", "OUTER", "SELECT", "WHERE", "TRUE", "FALSE", "YIELD"]
 
 -- | tries parsing both the upper and lower case versions of the given string
 upperOrLower :: String -> GenParser Char st String

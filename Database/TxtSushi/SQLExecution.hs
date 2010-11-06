@@ -48,7 +48,8 @@ textTableToDatabaseTable tblName (headerNames:tblRows) =
         qualifiedColumnsWithContext = M.empty,
         evaluationContext = evalCtxt,
         tableData = tblRows,
-        isInScope = idInHeader}
+        isInScope = idInHeader,
+        nullRow = replicate (length headerNames) ""}
     where
         makeColExpr colName = ColumnExpression (ColumnIdentifier Nothing colName) colName
         
@@ -84,7 +85,8 @@ emptyTable =
         qualifiedColumnsWithContext = M.empty,
         evaluationContext = eval,
         tableData = [shouldNeverOccurError] :: [String],
-        isInScope = const False}
+        isInScope = const False,
+        nullRow = []}
     where
         eval (ColumnExpression _ colStr)    = columnNotInScopeError colStr
         eval expr                           = evalWithContext eval expr
@@ -155,13 +157,21 @@ evalTableExpression sortCfg tblExpr tableMap =
             let table = M.findWithDefault (tableNotInScopeError tblName) tblName tableMap
             in  maybeRename maybeTblAlias table
         
-        -- TODO inner join should allow joining on expressions too!!
         InnerJoin leftJoinTblExpr rightJoinTblExpr onConditionExpr maybeTblAlias ->
             let
                 leftJoinTbl = evalTableExpression sortCfg leftJoinTblExpr tableMap
                 rightJoinTbl = evalTableExpression sortCfg rightJoinTblExpr tableMap
                 joinExprs = extractJoinExprs leftJoinTbl rightJoinTbl onConditionExpr
-                joinedTbl = innerJoinDbTables sortCfg joinExprs leftJoinTbl rightJoinTbl
+                joinedTbl = sortAndJoinDbTables False sortCfg joinExprs leftJoinTbl rightJoinTbl
+            in
+                maybeRename maybeTblAlias joinedTbl
+        
+        OuterJoin leftJoinTblExpr rightJoinTblExpr onConditionExpr maybeTblAlias ->
+            let
+                leftJoinTbl = evalTableExpression sortCfg leftJoinTblExpr tableMap
+                rightJoinTbl = evalTableExpression sortCfg rightJoinTblExpr tableMap
+                joinExprs = extractJoinExprs leftJoinTbl rightJoinTbl onConditionExpr
+                joinedTbl = sortAndJoinDbTables True sortCfg joinExprs leftJoinTbl rightJoinTbl
             in
                 maybeRename maybeTblAlias joinedTbl
         
@@ -328,7 +338,10 @@ data DatabaseTable a = DatabaseTable {
     tableData :: [a],
     
     -- | is the given identifier in scope for this table
-    isInScope :: ColumnIdentifier -> Bool}
+    isInScope :: ColumnIdentifier -> Bool,
+    
+    -- | we can only do an outer join if the concept of a NULL row exists
+    nullRow :: a}
 
 allIdentifiers :: Expression -> [ColumnIdentifier]
 allIdentifiers (FunctionExpression _ args _) = concatMap allIdentifiers args
@@ -431,7 +444,8 @@ groupDbTable sortCfg grpExprs (BoxedTable tbl) =
         columnsWithContext = mapSnd toGroupContext (columnsWithContext tbl),
         qualifiedColumnsWithContext = M.map (mapSnd toGroupContext) (qualifiedColumnsWithContext tbl),
         evaluationContext = toGroupContext $ evaluationContext tbl,
-        tableData = groupedData}
+        tableData = groupedData,
+        nullRow = [nullRow tbl]}
     where
         eval = evaluationContext tbl
         rowOrd row = [eval expr row | expr <- grpExprs]
@@ -446,7 +460,8 @@ singleGroupDbTable (BoxedTable tbl) =
         columnsWithContext = mapSnd toGroupContext (columnsWithContext tbl),
         qualifiedColumnsWithContext = M.map (mapSnd toGroupContext) (qualifiedColumnsWithContext tbl),
         evaluationContext = toGroupContext $ evaluationContext tbl,
-        tableData = [tableData tbl]}
+        tableData = [tableData tbl],
+        nullRow = [nullRow tbl]}
 
 compareWithDirection :: (Ord a) => [Bool] -> [a] -> [a] -> Ordering
 compareWithDirection (asc:ascTail) (x:xt) (y:yt) = case x `compare` y of
@@ -456,13 +471,14 @@ compareWithDirection (asc:ascTail) (x:xt) (y:yt) = case x `compare` y of
 compareWithDirection [] [] [] = EQ
 compareWithDirection _ _ _ = error "Internal Error: List sizes should match"
 
-innerJoinDbTables ::
-    SortConfiguration
+sortAndJoinDbTables ::
+    Bool
+    -> SortConfiguration
     -> [(Expression, Expression)]
     -> BoxedTable
     -> BoxedTable
     -> BoxedTable
-innerJoinDbTables sortCfg joinExprs (BoxedTable fstTable) (BoxedTable sndTable) =
+sortAndJoinDbTables outerJoin sortCfg joinExprs (BoxedTable fstTable) (BoxedTable sndTable) =
     BoxedTable $ zipDbTables joinedData fstTable sndTable
     where
         fstEval = evaluationContext fstTable
@@ -474,7 +490,10 @@ innerJoinDbTables sortCfg joinExprs (BoxedTable fstTable) (BoxedTable sndTable) 
         sortedFstData = sortByCfg sortCfg (compare `on` fstRowOrd) (tableData fstTable)
         sortedSndData = sortByCfg sortCfg (compare `on` sndRowOrd) (tableData sndTable)
         
-        joinedData = joinPresortedTables fstRowOrd sortedFstData sndRowOrd sortedSndData
+        fstNull = if outerJoin then Just (nullRow fstTable) else Nothing
+        sndNull = if outerJoin then Just (nullRow sndTable) else Nothing
+        
+        joinedData = joinPresortedTables fstRowOrd sortedFstData fstNull sndRowOrd sortedSndData sndNull
 
 crossJoinDbTables ::
     BoxedTable
@@ -491,7 +510,8 @@ zipDbTables zippedData fstTable sndTable = DatabaseTable {
     qualifiedColumnsWithContext = M.unionWithKey ambiguousTableError fstQualCols sndQualCols,
     evaluationContext = evalCtxt,
     tableData = zippedData,
-    isInScope = isInFstOrSndScope}
+    isInScope = isInFstOrSndScope,
+    nullRow = (nullRow fstTable, nullRow sndTable)}
     
     where
         isInFstScope = isInScope fstTable
