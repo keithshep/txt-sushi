@@ -1,80 +1,162 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
-	"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<!--
+To change this template, choose Tools | Templates
+and open the template in the editor.
+-->
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
 <head>
-	<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-
-	<title>keithshep/txt-sushi @ GitHub</title>
-	
-	<style type="text/css">
-		body {
-  		margin-top: 1.0em;
-  		background-color: #35efd2;
-		  font-family: "Helvetica,Arial,FreeSans";
-  		color: #000000;
-    }
-    #container {
-      margin: 0 auto;
-      width: 700px;
-    }
-		h1 { font-size: 3.8em; color: #ca102d; margin-bottom: 3px; }
-		h1 .small { font-size: 0.4em; }
-		h1 a { text-decoration: none }
-		h2 { font-size: 1.5em; color: #ca102d; }
-    h3 { text-align: center; color: #ca102d; }
-    a { color: #ca102d; }
-    .description { font-size: 1.2em; margin-bottom: 30px; margin-top: 30px; font-style: italic;}
-    .download { float: right; }
-		pre { background: #000; color: #fff; padding: 15px;}
-    hr { border: 0; width: 80%; border-bottom: 1px solid #aaa}
-    .footer { text-align:center; padding-top:30px; font-style: italic; }
-	</style>
-	
+  <title>TxtSushi: The SQL link in your *NIX chain</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" type="text/css" href="../css/style.css">
 </head>
 
 <body>
-  <a href="http://github.com/keithshep/txt-sushi"><img style="position: absolute; top: 0; right: 0; border: 0;" src="http://s3.amazonaws.com/github/ribbons/forkme_right_darkblue_121621.png" alt="Fork me on GitHub" /></a>
+<h1>TxtSushi</h1>
 
-  <div id="container">
+<div>
+TxtSushi is a collection of command line utilities for processing
+comma-separated and tab-delimited files (AKA flat files, spreadsheets). By
+focusing exclusively on processing text files with a tabular structure,
+TxtSushi simplifies common tasks like filtering, joining and transformation
+that would take some effort to accomplish with a more powerful scripting
+language. </div>
 
-    <div class="download">
-      <a href="http://github.com/keithshep/txt-sushi/zipball/master">
-        <img border="0" width="90" src="http://github.com/images/modules/download/zip.png"></a>
-      <a href="http://github.com/keithshep/txt-sushi/tarball/master">
-        <img border="0" width="90" src="http://github.com/images/modules/download/tar.png"></a>
-    </div>
+<h2>License</h2>
 
-    <h1><a href="http://github.com/keithshep/txt-sushi">txt-sushi</a>
-      <span class="small">by <a href="http://github.com/keithshep">keithshep</a></span></h1>
+<div>
+The source code is available under the GPLv3 open source license. I am willing
+to consider requests for licensing the code under other licenses. </div>
 
-    <div class="description">
-      The SQL link in your *NIX chain
-    </div>
+<h2>Documentation</h2>
 
-    <h2>Authors</h2>
-<p>Keith Sheppard (keithshep@gmail.com)<br/>keithshep (keithshep@gmail.org)<br/>Neil Brown (neil@twistedsquare.com)<br/><br/>      </p>
-<h2>Contact</h2>
-<p>Keith Sheppard (keithshep@gmail.com)<br/>      </p>
+<div>
+TxtSushi is still under active development and has not yet reached 1.0. This
+means that you can expect it to be a little bit rough around the edges but it
+should generally work as advertised. 
 
+<h3>Building/Revision Control/Issue Tracking/Announcements:</h3>
+<ul>
+  <li>TxtSushi can be built with <a href="http://www.haskell.org/ghc/">GHC</a>
+    &gt;= 6.10.1 and <a href="http://www.haskell.org/cabal/">Cabal</a>. Since
+    TxtSushi is <a href="http://hackage.haskell.org/package/txt-sushi">on
+    hackage</a> you should be able to just do: 
+    <pre>cabal update
+cabal install txt-sushi</pre>
+    Make sure that the cabal bin directory (usually ~/.cabal/bin) is on your PATH
+  </li>
+  <li>Revision Control: The codebase is available in a <a
+    href="http://patch-tag.com/r/keithshep/txt-sushi">darcs repository</a> on
+    patch-tag </li>
+  <li>Issue Tracking: hosted on the <a
+    href="http://code.google.com/p/txt-sushi">TxtSushi page on google code</a>.
+  </li>
+  <li>Announcements: <a
+    href="http://blog.keithsheppard.name/feeds/posts/default/-/TxtSushi">TxtSushi
+    Announcement RSS feed</a>. </li>
+</ul>
 
-    <h2>Download</h2>
-    <p>
-      You can download this project in either
-      <a href="http://github.com/keithshep/txt-sushi/zipball/master">zip</a> or
-      <a href="http://github.com/keithshep/txt-sushi/tarball/master">tar</a> formats.
-    </p>
-    <p>You can also clone the project with <a href="http://git-scm.com">Git</a>
-      by running:
-      <pre>$ git clone git://github.com/keithshep/txt-sushi</pre>
-    </p>
+<h3>tssql:</h3>
+The tssql utility allows you to use a subset of the SQL SELECT grammar on your
+flat files. See the <a href="tssql.html">tssql documentation</a> for details.
 
-    <div class="footer">
-      get the source code on GitHub : <a href="http://github.com/keithshep/txt-sushi">keithshep/txt-sushi</a>
-    </div>
+<h3>csvtotab:</h3>
+</div>
 
-  </div>
+<div>
+Converts a comma-delimited file to a tab-delimited file. This command takes one
+argument which is either a '-' for standard input or a filename. </div>
 
-  
+<h3>csvtopretty:</h3>
+
+<div>
+Pretty format a comma-delimited file. Formats columns so that all data in
+column lines up (see examples above). This command takes one argument which is
+either a '-' for standard input or a filename. </div>
+
+<h3>transposecsv:</h3>
+
+<div>
+Transpose a CSV file. This command takes one argument which is
+either a '-' for standard input or a filename. </div>
+
+<h3>tabtocsv:</h3>
+
+<div>
+Converts a tab-delimited file to a comma-delimited file. This command takes one
+argument which is either a '-' for standard input or a filename. </div>
+
+<h3>tabtopretty:</h3>
+
+<div>
+Pretty format a tab-delimited file. Formats columns so that all data in column
+lines up. This command takes one argument which is either a '-' for standard
+input or a filename. </div>
+
+<h3>transposetab:</h3>
+
+<div>
+Transpose a tab-delimited file. This command takes one argument which is
+either a '-' for standard input or a filename. </div>
+
+<h3>namecolumns:</h3>
+
+<div>
+Adds a header row to a CSV file. Uses column names like col1, col2, col3...
+This command takes one argument which is either a '-' for standard input or a
+filename. 
+
+<h2>Links</h2>
+
+<p>There are many other great tools that help you work with flat files. Email me (<a
+href="mailto:keithshep@gmail.com">keithshep@gmail.com</a>) if you think there
+are other tools that should be added to this list:</p>
+
+<table border="1">
+  <tbody>
+    <tr>
+      <td><b>Utility</b></td>
+      <td><b>Notes</b></td>
+    </tr>
+    <tr>
+      <td><a href="http://code.google.com/p/csvfix">csvfix</a></td>
+      <td>Very similar features to TxtSushi, uses many small utilities rather than SQL syntax</td>
+    </tr>
+    <tr>
+        <td><a href="http://www.microsoft.com/downloads/details.aspx?FamilyID=890cd06b-abf8-4c25-91b2-f8d975cf8c07&displaylang=en">MS Log Parser</a></td>
+        <td>Does not join tables, only works with MS Windows, closed source, works
+            with many more data types than just flat files
+            (XML, windows registry ...)</td>
+    </tr>
+    <tr>
+        <td><a href="http://www.isi.edu/~johnh/SOFTWARE/FSDB/index.html">Fsdb</a></td>
+        <td>Similar features to TxtSushi but uses many utilities rather than SQL</td>
+    </tr>
+    <tr>
+        <td><a href="http://quisp.sourceforge.net/sqlman/html/shsql_home.html">shsql</a></td>
+        <td>Intended to work on mutable persistent CSV data where TxtSushi is more inteded to work on "data streams". </td>
+    </tr>
+    <tr>
+        <td><a href="http://haskell.di.uminho.pt/jacome/index.html">HaExcel</a></td>
+        <td>An interesting tool that can be used to intelligently refactor spreadsheets into real databases</td>
+    </tr>
+    <tr>
+        <td><a href="http://dev.mysql.com/tech-resources/articles/csv-storage-engine.html">MySQL CSV Storage</a></td>
+        <td>You can now use CSV files as the storage backend for MySQL</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<!-- JavaScript for Goolge Analytics -->
+<script type="text/javascript">
+            var gaJsHost = (("https:" == document.location.protocol) ? "https://ssl." : "http://www.");
+            document.write(unescape("%3Cscript src='" + gaJsHost + "google-analytics.com/ga.js' type='text/javascript'%3E%3C/script%3E"));
+</script>
+<script type="text/javascript">
+            try {
+                var pageTracker = _gat._getTracker("UA-8667692-1");
+                pageTracker._trackPageview();
+            } catch(err) {}
+</script>
 </body>
 </html>

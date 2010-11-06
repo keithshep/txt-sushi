@@ -1,0 +1,133 @@
+<!--
+To change this template, choose Tools | Templates
+and open the template in the editor.
+-->
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+  <title>tssql documentation</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" type="text/css" href="../css/style.css">
+</head>
+
+<body>
+<h1>tssql:</h1>
+
+<p>tssql is a part of the <a href="index.html">TxtSushi toolset</a>. The tssql
+utility allows you to use a subset of the SQL SELECT grammar on your flat
+files. tssql treats the first row of a CSV file as a table header and the other
+rows are treated as table data. Here is a summary of what's supported in the
+current version: </p>
+<ul>
+  <li>Column Selection: tssql supports wildcard column selection, naming
+    individual columns, and expression columns. Here is an example of all three
+    in a single SELECT statement 
+    <pre>SELECT employees.*, employees.salary * 0.45, office.squareFeet from ...</pre>
+  </li>
+  <li>Filtering: SQL WHERE filtering is supported 
+    <pre>SELECT ... FROM ... WHERE (employees.salary * 0.45 &gt; 20000) OR (employees.dept = "IT")</pre>
+  </li>
+  <li>Joining: tssql supports SQL's newer JOIN ON syntax for joining tables
+    together. 
+    <pre>SELECT ... FROM tbl1 JOIN tbl2 ON tbl1.id = tbl2.id WHERE ...</pre>
+    It is also legitimate to write this join as: 
+    <pre>SELECT ... FROM tbl1, tbl2 WHERE tbl1.id = tbl2.id AND ...</pre>
+    but this older join syntax is completely unoptimized and will take a very
+    long time for large tables. For the CS folks its a O(table1_rows *
+    table2_rows) operation as opposed to O(table1_rows*log(table1_rows) +
+    table2_rows*log(table2_rows)) for the "newer" join syntax.</li>
+  <li>Sorting: Use ORDER BY to sort your table like 
+    <pre>SELECT ... FROM ... ORDER BY employee.salesPerAnnum / employees.salary</pre>
+  </li>
+  <li>Aggregation: Use aggregate functions (listed below) along with GROUP BY.
+    For example, to get an average salary for each department you could use
+    something like 
+    <pre>SELECT AVG(employees.salary) FROM ... WHERE ... GROUP BY employee.dept</pre>
+    You can also apply aggregate functions to the entire select if you leave
+    the GROUP BY out. So something like this will give you the overall average. 
+    <pre>SELECT AVG(employees.salary) FROM employees</pre>
+  </li>
+  <li>FOR Syntax: tssql also allows you to apply a function over a range of
+    columns using non-standard syntax. For example, suppose we have a table
+    containing employee salaries by year in matrix format where the header
+    looks like "emp_id,base_salary,yr2000,yr2001,yr2003,yr2004,yr2005".
+    If I want to see how the employees' salaries have changed vs base_salary
+    over time I could do something like: 
+    <pre>SELECT emp_id, FOR s IN [salary_2000 .. salary_2005] YIELD s/base_salary FROM yearly_salaries</pre>
+  </li>
+  <li>Supported Functions and Operators: *, +, -, /, &lt;, &lt;=, &lt;&gt;, =,
+    =~, &gt;, &gt;=, ABS, AND, AS_INT, AS_REAL, AVG, FIRST, IF_THEN_ELSE,
+    IS_NUMERIC, LAST, LOWER, MAX, MIN, NOT, OR, SUBSTRING, SUM, TRIM, UPPER,
+  ||</li>
+</ul>
+
+<p>If you type </p>
+<pre>tssql -help</pre>
+you will see the following usage documentation: 
+<pre>Usage: tssql [-help  ...] [-external-sort] [-table table_name CSV_file_name]</pre>
+I will only explain the -external-sort option since -table option is
+demonstrated in the example below. You only need to consider using the external
+sort option if you have a very large table that you are performing an "[INNER]
+JOIN", "GROUP BY" or "ORDER BY" operation. All of these operation require a row
+sort which can cause tssql to run out of memory if the table is very big. If
+this occurs you can use the external sort option to tell tssql to sort the rows
+on disk which is much slower but also requires less memory.
+
+<h2>Examples:</h2>
+
+<p>Here are a couple of selected example scripts. To see all of the examples
+you can go to <a
+href="http://patch-tag.com/r/keithshep/txt-sushi/snapshot/current/content/pretty/examples">the
+examples directory</a> and even <a
+href="http://patch-tag.com/r/keithshep/txt-sushi/snapshot/current/content/pretty/tests">the
+test directory</a> in the darcs repository. The first example comes from <a
+href="http://patch-tag.com/r/keithshep/txt-sushi/snapshot/current/content/pretty/tests/test1.2.bash">test1.2.bash</a>:
+</p>
+<pre>#!/bin/bash
+
+# Example adapted from http://en.wikipedia.org/wiki/Join_(SQL)#Self-join
+
+tssql 'SELECT F.EmployeeID, F.LastName, S.EmployeeID, S.LastName, F.Country
+FROM `employees.csv` AS F JOIN `employees.csv` AS S
+ON F.Country = S.Country
+WHERE F.EmployeeID &lt; S.EmployeeID
+ORDER BY F.EmployeeID, S.EmployeeID' | csvtopretty -</pre>
+If you don't use any command line options then tssql's default behavior is to
+assume that table names will match the file names of the comma-separated files
+that they refer to. So for this example the employees.csv file needs to be
+available in the working directory. You can also see from this example that
+tssql accepts standard identifiers like F.EmployeeID without any special
+syntax, but if you have an identifier that includes spaces or special
+characters you can quote it with backticks as in `employees.csv`. Here is the
+output you get from this example: 
+<pre>EmployeeID|LastName|EmployeeID|LastName |Country
+123       |Rafferty|124       |Jones    |Australia
+123       |Rafferty|145       |Steinberg|Australia
+124       |Jones   |145       |Steinberg|Australia
+305       |Smith   |306       |Jasper   |United Kingdom</pre>
+Here is one more example to show how you can name tables using the -table
+option: 
+<pre>#!/bin/bash
+
+# replicating JOIN from
+# http://www.itl.nist.gov/div897/ctg/dm/sql_examples.htm
+
+tssql -table STATION station.csv -table STATS stats.csv \
+'SELECT LAT_N, CITY, TEMP_F FROM STATS JOIN STATION ON STATS.ID = STATION.ID
+WHERE MONTH = 7 ORDER BY TEMP_F' | csvtopretty -</pre>
+And the output you should get: 
+<pre>LAT_N|CITY   |TEMP_F
+47   |Caribou|65.8
+40   |Denver |74.8
+33   |Phoenix|91.7</pre>
+<!-- JavaScript for Goolge Analytics -->
+<script type="text/javascript">
+            var gaJsHost = (("https:" == document.location.protocol) ? "https://ssl." : "http://www.");
+            document.write(unescape("%3Cscript src='" + gaJsHost + "google-analytics.com/ga.js' type='text/javascript'%3E%3C/script%3E"));</script>
+<script type="text/javascript">
+            try {
+                var pageTracker = _gat._getTracker("UA-8667692-1");
+                pageTracker._trackPageview();
+            } catch(err) {}</script>
+</body>
+</html>
