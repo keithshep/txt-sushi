@@ -2,7 +2,7 @@ Name:                txt-sushi
 Version:             0.6.0
 Synopsis:            The SQL link in your *NIX chain
 Description:
-    TxtSushi is a collection of command line utilities for processing
+    txt-sushi is a collection of command line utilities for processing
     comma-separated and tab-delimited files (AKA flat files, spreadsheets).
     The most important utility (tssql) lets you perform SQL selects on CSV files.
     By focusing exclusively on processing text files with a tabular structure,
@@ -14,18 +14,18 @@ License-File:        COPYING
 Author:              Keith Sheppard
 Maintainer:          keithshep@gmail.com
 Homepage:            http://keithsheppard.name/txt-sushi
-Bug-Reports:         http://code.google.com/p/txt-sushi/issues/list
+Bug-Reports:         https://github.com/keithshep/txt-sushi/issues
 Build-Type:          Simple
 Category:            Database, Console
 Cabal-Version:       >= 1.6
 
 Source-Repository head
-  type:     darcs
-  location: http://patch-tag.com/r/keithshep/txt-sushi/pullrepo
+  type:     git
+  location: git://github.com/keithshep/txt-sushi.git
 
 Source-Repository this
-  type:     darcs
-  location: http://patch-tag.com/r/keithshep/txt-sushi/pullrepo
+  type:     git
+  location: git://github.com/keithshep/txt-sushi.git
   tag:      0.6.0
 
 Executable tssql
