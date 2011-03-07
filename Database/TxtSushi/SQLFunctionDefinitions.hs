@@ -36,7 +36,7 @@ import Database.TxtSushi.SQLExpression
 -- Functions with "normal" syntax --
 normalSyntaxFunctions :: [SQLFunction]
 normalSyntaxFunctions =
-    [absFunction, upperFunction, lowerFunction, trimFunction, ifThenElseFunction,
+    [absFunction, upperFunction, lowerFunction, trimFunction, lengthFunction, ifThenElseFunction,
      asIntFunction, asRealFunction, isNumericFunction,
      -- all aggregates except count which accepts a (*)
      avgFunction, firstFunction, lastFunction, maxFunction,
@@ -110,6 +110,15 @@ trimFunction = SQLFunction {
     applyFunction       = applyUnaryString trimFunction trimSpace,
     functionGrammar     = normalGrammar trimFunction,
     functionDescription = "trims whitespace from the beginning and end of the given text"}
+
+lengthFunction :: SQLFunction
+lengthFunction = SQLFunction {
+    functionName        = "LEN",
+    minArgCount         = 1,
+    argCountIsFixed     = True,
+    applyFunction       = IntExpression . length . coerceString . head . checkArgCount lengthFunction,
+    functionGrammar     = normalGrammar lengthFunction,
+    functionDescription = "the number of characters in the given text"}
 
 ifThenElseFunction :: SQLFunction
 ifThenElseFunction = SQLFunction {
