@@ -13,14 +13,10 @@
 -- match then the shorter tables will be padded with empty cells.
 --
 -----------------------------------------------------------------------------
-import Data.List(intercalate)
-import Data.Version (Version(versionBranch))
 import System.Environment (getArgs, getProgName)
 
 import Database.TxtSushi.FlatFile (csvFormat, formatTable, parseTable)
-import Database.TxtSushi.IOUtil (getContentsFromFileOrStdin)
-
-import Paths_txt_sushi(version)
+import Database.TxtSushi.IOUtil (getContentsFromFileOrStdin, versionStr)
 
 main :: IO ()
 main = do
@@ -55,6 +51,4 @@ printUsage = do
     progName <- getProgName
     putStrLn $ progName ++ " (" ++ versionStr ++ ")"
     putStrLn $ "Usage: " ++ progName ++ " csvfile_or_dash csvfile_or_dash ..."
-    
-    where
-        versionStr = intercalate "." (map show . versionBranch $ version)
+

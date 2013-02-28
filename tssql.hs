@@ -11,7 +11,6 @@
 -----------------------------------------------------------------------------
 import Data.Char
 import Data.List
-import Data.Version (Version(..))
 import qualified Data.Map as M
 import System.Environment
 import System.Exit
@@ -25,8 +24,6 @@ import Database.TxtSushi.ParseUtil
 import Database.TxtSushi.SQLExecution
 import Database.TxtSushi.SQLFunctionDefinitions
 import Database.TxtSushi.SQLParser
-
-import Paths_txt_sushi
 
 helpOption :: OptionDescription
 helpOption = OptionDescription {
@@ -92,8 +89,6 @@ printUsage :: String -> IO ()
 printUsage progName = do
     putStrLn $ progName ++ " (" ++ versionStr ++ ")"
     putStrLn $ "Usage: " ++ progName ++ " " ++ formatCommandLine sqlCmdLine
-    where
-        versionStr = intercalate "." (map show $ versionBranch version)
 
 argsToSortConfig :: M.Map OptionDescription a -> SortConfiguration
 argsToSortConfig argMap =

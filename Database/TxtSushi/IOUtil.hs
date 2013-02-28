@@ -13,15 +13,15 @@
 module Database.TxtSushi.IOUtil (
     bufferStdioToTempFile,
     getContentsFromFileOrStdin,
-    printSingleFileUsage) where
+    printSingleFileUsage,
+    versionStr) where
 
-import Data.List
-import Data.Version (Version(..))
 import System.Directory
 import System.Environment
 import System.IO
 
-import Paths_txt_sushi
+versionStr :: String
+versionStr = "0.6.0"
 
 -- | buffers standard input to a temp file and returns a path to that file
 bufferStdioToTempFile :: IO FilePath
@@ -48,6 +48,4 @@ printSingleFileUsage = do
     progName <- getProgName
     putStrLn $ progName ++ " (" ++ versionStr ++ ")"
     putStrLn $ "Usage: " ++ progName ++ " file_name_or_dash"
-    
-    where
-        versionStr = intercalate "." (map show . versionBranch $ version)
+

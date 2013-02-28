@@ -80,7 +80,6 @@ Library
     Database.TxtSushi.SQLExpression
     Database.TxtSushi.SQLFunctionDefinitions
     Database.TxtSushi.SQLParser
-    Paths_txt_sushi
   
   Build-Depends:    base >= 3 && < 5,binary,bytestring,containers,directory,parsec,regex-posix
   GHC-Options:      -O2 -Wall
